@@ -1,0 +1,19 @@
+{
+  "name": "puretabs",
+  "version": "0.1.0",
+  "description": "Tree tabs extension written in PureScript",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "parcel": "parcel",
+    "dev": "spago build --watch & parcel watch src/background.js -d extension/",
+    "build": "spago build && parcel build src/background.js -d extension/",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "parcel": "^1.12.4"
+  }
+}

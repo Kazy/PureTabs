@@ -1,0 +1,31 @@
+{
+  "manifest_version": 2,
+  "name": "Pure Tabs",
+  "description": "Tree tabs extension written in PureScript",
+  "version": "0.1.0",
+  "homepage_url": "https://github.com/Kazy",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "puretabs@boullier.bzh"
+    }
+  },
+  "background": {
+    "scripts": [
+      "background.js"
+    ],
+    "persistent": true
+  },
+  "sidebar_action": {
+    "default_title": "Pure Tabs",
+    "default_panel": "sidebar.html"
+  },
+  "permissions": [
+    "<all_urls>",
+    "tabs",
+    "sessions",
+    "storage",
+    "unlimitedStorage",
+    "bookmarks",
+    "tabHide"
+  ]
+}
