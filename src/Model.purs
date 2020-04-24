@@ -40,32 +40,32 @@ type Window
     }
 
 _tabs :: forall a r. Lens' { tabs :: a | r } a
-_tabs = prop (SProxy :: SProxy "tabs")
+_tabs = prop (SProxy ::_ "tabs")
 
 _port :: forall a r. Lens' { port :: a | r } a
-_port = prop (SProxy :: SProxy "port")
+_port = prop (SProxy ::_ "port")
 
 type GlobalState
   = { windows :: Map WindowId Window
     }
 
 _windows :: forall a r. Lens' { windows :: a | r } a
-_windows = prop (SProxy :: SProxy "windows")
+_windows = prop (SProxy ::_ "windows")
 
 _title :: forall a r. Lens' { title :: a | r } a
-_title = prop (SProxy :: SProxy "title")
+_title = prop (SProxy ::_ "title")
 
 _tabTitle :: Lens' Tab String
 _tabTitle = _Newtype <<< _title
 
 _id :: forall a r. Lens' { id :: a | r } a
-_id = prop (SProxy :: SProxy "id")
+_id = prop (SProxy ::_ "id")
 
 _tabId :: Lens' Tab TabId
 _tabId = _Newtype <<< _id
 
 _windowId :: forall a r. Lens' { windowId :: a | r } a
-_windowId = prop (SProxy :: SProxy "windowId")
+_windowId = prop (SProxy ::_ "windowId")
 
 _tabWindowId :: Lens' Tab WindowId
 _tabWindowId = _Newtype <<< _windowId
