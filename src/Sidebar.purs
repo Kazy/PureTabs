@@ -55,11 +55,11 @@ createTabElement tab' = do
   let
     tab = unwrap tab'
   tabDiv <- create "<div>"
-  setText tab.title tabDiv
   setAttr "class" "tab" tabDiv
   setAttr "id" tab.id tabDiv
   favicon <- create "<span class=\"favicon\">"
-  tabTitle <- create "<span class=\"tab-title\">"
+  tabTitle <- create "<div class=\"tab-title\">"
+  setText tab.title tabTitle
   append favicon tabDiv
   append tabTitle tabDiv
   pure tabDiv
