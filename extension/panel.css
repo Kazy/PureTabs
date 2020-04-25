@@ -8,14 +8,29 @@ html, body {
 }
 
 .tab {
-  border: solid grey 1px;
+  display: flex;
+  align-items: center;
+  border: solid #cfcfcf 1px;
   margin-bottom: 1px;
   padding-left: 2px;
   width: 100%;
 }
 
 .tab-title {
+  display: inline-block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  width: 90%;
+}
+
+.tab-favicon {
+  display: inline-block;
+  background-size: cover;
+  background-position: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 5px;
+  margin-right: 5px;
+  vertical-align: middle;
 }
