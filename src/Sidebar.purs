@@ -89,10 +89,7 @@ updateTabInfo tid cinfo' tab' = do
   let
     newTitle = case cinfo.status of
       Just "loading" -> Just "Loading ..."
-      -- only change the title if we did receive a new title
-      -- prevent some flickering when the status `complete` but the tab title
-      -- info is empty
-      _ -> cinfo.title 
+      _ -> Just tab.title
   maybe (pure unit) (\t -> setText t tabTitleDiv) newTitle
 
   tabFaviconDiv <- select ("#" <> (show tid) <> " > .tab-favicon")
