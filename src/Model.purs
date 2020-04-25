@@ -17,6 +17,7 @@ module PureTabs.Model
 
 import Browser.Runtime (Port)
 import Browser.Tabs (TabId, WindowId, Tab)
+import Browser.Tabs.OnUpdated (ChangeInfo(..))
 import Control.Alt (map)
 import Data.Function (($))
 import Data.Generic.Rep (class Generic)
@@ -115,6 +116,7 @@ data BackgroundEvent
   = BgInitialTabList (Array Tab)
   | BgTabCreated Tab
   | BgTabDeleted TabId
+  | BgTabUpdated TabId ChangeInfo Tab
   | BgTabMoved
   | BgTabActived TabId
   | BgTabAttached Tab

@@ -4,8 +4,9 @@ import Browser.Runtime as Runtime
 import Browser.Tabs (Tab, TabId, WindowId, query)
 import Browser.Tabs.OnCreated as TabsOnCreated
 import Browser.Tabs.OnRemoved as TabsOnRemoved
+import Browser.Tabs.OnUpdated as TabsOnUpdated
+import Browser.Tabs.OnUpdated (ChangeInfo(..))
 import Browser.Utils (Listener, mkListenerOne, mkListenerTwo, mkListenerUnit)
-import Control.Alt (map)
 import Control.Alternative (pure, (*>))
 import Data.Array (fromFoldable)
 import Data.Foldable (for_)
@@ -50,12 +51,11 @@ initializeBackground ref = do
   _ <- TabsOnCreated.addListener $ onTabCreated ref
   tabDeletedListener <- mkListenerTwo $ onTabDeleted ref
   _ <- TabsOnRemoved.addListener tabDeletedListener
+  _ <- TabsOnUpdated.addListener $ onTabUpdated ref
   onConnectedListener <- mkListenerOne $ onConnect ref
   Runtime.onConnectAddListener onConnectedListener
   pure unit
 
--- port on connect
--- created tab
 onTabCreated :: (Ref.Ref GlobalState) -> Tab -> Effect Unit
 onTabCreated stateRef tab' = do
   state <- Ref.modify (set (_tabFromWindow tab') (Just tab')) stateRef
@@ -67,6 +67,13 @@ onTabCreated stateRef tab' = do
       log $ "tab " <> (show tab.id) <> " created: " <> tab.title
   where
   tab = unwrap tab'
+
+onTabUpdated :: (Ref.Ref GlobalState) -> TabId -> ChangeInfo -> Tab -> Effect Unit
+onTabUpdated stateRef tid cinfo tab' = do
+  state <- Ref.modify (set (_tabFromWindow tab') (Just tab')) stateRef
+  case (preview (_portFromWindow tab') state) of
+    Nothing -> pure unit
+    Just port -> Runtime.postMessageJson port $ BgTabUpdated tid cinfo tab'
 
 onTabDeleted :: (Ref.Ref GlobalState) -> TabId -> TabsOnRemoved.RemoveInfo -> Effect Unit
 onTabDeleted stateRef tabId info = do

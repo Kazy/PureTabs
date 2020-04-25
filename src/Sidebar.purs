@@ -2,11 +2,13 @@ module PureTabs.Sidebar where
 
 import Browser.Runtime as Runtime
 import Browser.Tabs (Tab, TabId, WindowId)
+import Browser.Tabs.OnUpdated (ChangeInfo(..))
 import Browser.Windows (getCurrent)
 import Control.Alternative (pure)
 import Control.Bind ((>=>))
 import Data.Foldable (traverse_)
 import Data.Function (flip)
+import Data.Maybe (Maybe(..))
 import Data.Monoid ((<>))
 import Data.Newtype (unwrap)
 import Data.Show (show)
@@ -46,8 +48,8 @@ initSidebar port winId = do
       append tabElem contentDiv
       pure unit
     BgTabDeleted tabId -> deleteTabElement tabId
-    BgInitialTabList tabs -> 
-      traverse_ (createTabElement >=> (flip append) contentDiv) tabs
+    BgInitialTabList tabs -> traverse_ (createTabElement >=> (flip append) contentDiv) tabs
+    BgTabUpdated tid cinfo tab -> updateTabInfo tid cinfo tab
     _ -> log "received unsupported message type"
 
 createTabElement :: Tab -> Effect JQuery
@@ -66,5 +68,18 @@ createTabElement tab' = do
 
 deleteTabElement :: TabId -> Effect Unit
 deleteTabElement tabId = do
-    div <- select ("#" <> show tabId)
-    remove div
+  div <- select ("#" <> show tabId)
+  remove div
+
+updateTabInfo :: TabId -> ChangeInfo -> Tab -> Effect Unit
+updateTabInfo tid cinfo' tab' = do
+  let
+    tab = unwrap tab'
+
+    cinfo = unwrap cinfo'
+  tabTitleDiv <- select ("#" <> (show tid) <> " > .tab-title")
+  let
+    newTitle = case cinfo.status of
+      Just "loading" -> "Loading ..."
+      _ -> tab.title
+  setText newTitle tabTitleDiv

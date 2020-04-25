@@ -24,3 +24,11 @@ exports.mkListenerTwo = function (fn) {
     }
   }
 };
+
+exports.mkListenerThree = function (fn) {
+  return function () {
+    return function (one, two, three) {
+        return fn(one)(two)(three)();
+    }
+  }
+};
