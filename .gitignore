@@ -11,3 +11,7 @@
 /.cache
 /dist
 /tags
+/extension/background.js
+/extension/background.js.map
+/extension/sidebar.js
+/extension/sidebar.js.map
