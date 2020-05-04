@@ -1,11 +1,11 @@
 module PureTabs.Background where
 
 import Browser.Runtime as Runtime
-import Browser.Tabs (Tab, TabId, WindowId, query)
+import Browser.Tabs (Tab, TabId, WindowId, query, removeOne)
 import Browser.Tabs.OnCreated as TabsOnCreated
 import Browser.Tabs.OnRemoved as TabsOnRemoved
-import Browser.Tabs.OnUpdated as TabsOnUpdated
 import Browser.Tabs.OnUpdated (ChangeInfo(..))
+import Browser.Tabs.OnUpdated as TabsOnUpdated
 import Browser.Utils (Listener, mkListenerOne, mkListenerTwo, mkListenerUnit)
 import Control.Alternative (pure, (*>))
 import Data.Array (fromFoldable)
@@ -27,7 +27,7 @@ import Effect.Class (liftEffect)
 import Effect.Console (log)
 import Effect.Ref as Ref
 import Prelude (Unit, bind, ($), discard, (<<<))
-import PureTabs.Model (_windows, _portFromWindow, _tabFromWindow, _port, _tabFromTabIdAndWindow, tabsToGlobalState, GlobalState, BackgroundEvent(..), SidebarEvent(..))
+import PureTabs.Model (BackgroundEvent(..), GlobalState, SidebarEvent(..), _port, _portFromWindow, _tabFromTabIdAndWindow, _tabFromWindow, _windows, tabsToGlobalState)
 
 type Ports
   = Ref.Ref (List Runtime.Port)
@@ -143,8 +143,8 @@ initWindowState port ref winId =
 -- TODO don't pass the full ref, but only a set of function to manipulate/access 
 -- the data required
 manageSidebar :: (Ref.Ref GlobalState) -> Runtime.Port -> SidebarEvent -> Effect Unit
-manageSidebar stateRef port msg = do
-  pure unit
+manageSidebar stateRef port (SbTabDeleted tabId) = launchAff_ $ removeOne tabId
+manageSidebar stateRef port msg = pure unit
 
 onDisconnect :: forall a. (Ref.Ref GlobalState) -> WindowId -> Listener a -> Effect Unit
 onDisconnect stateRef winId listener = Ref.modify_ (set (_windows <<< (at winId) <<< _Just <<< _port) Nothing) stateRef

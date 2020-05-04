@@ -1,4 +1,4 @@
-module Browser.Tabs (WindowId, TabId(..), Tab(..), query) where
+module Browser.Tabs (WindowId, TabId(..), Tab(..), query, remove, removeOne) where
 
 import Browser.Utils (unwrapForeign)
 import Control.Alt (map)
@@ -9,14 +9,14 @@ import Data.Eq (class Eq)
 import Data.Function (($))
 import Data.Generic.Rep (class Generic)
 import Data.Generic.Rep.Show (genericShow)
-import Data.List (List, fromFoldable)
+import Data.List (List, fromFoldable, toUnfoldable, (!!), singleton)
 import Data.Maybe (Maybe)
-import Data.Newtype (class Newtype)
+import Data.Newtype (class Newtype, unwrap)
 import Data.Number.Format (toString)
 import Data.Ord (class Ord)
 import Data.Show (class Show)
 import Data.Traversable (traverse)
-import Data.Unit (unit)
+import Data.Unit (Unit, unit)
 import Effect (Effect)
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
@@ -111,3 +111,19 @@ query = do
   let tabsList = fromFoldable tabsArray
   parsed <- liftEffect $ traverse unwrapForeign tabsList
   pure parsed
+
+
+foreign import remove' :: (Array Number) -> Effect (Promise Unit)
+
+remove :: (List TabId) -> Aff Unit
+remove tabs = 
+  let tabIdsArray = toUnfoldable $ map unwrap tabs
+   in
+  toAffE $ remove' tabIdsArray
+
+  where
+        unwrap (TabId n) = n
+
+removeOne :: TabId -> Aff Unit
+removeOne tabId = remove (singleton tabId)
+

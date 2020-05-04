@@ -10,6 +10,7 @@ html, body {
 .tab {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   border: solid #cfcfcf 1px;
   margin-bottom: 1px;
   padding-left: 2px;
@@ -18,13 +19,16 @@ html, body {
 
 .tab-title {
   display: inline-block;
+  align-self: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  width: 90%;
+  width: 100%;
 }
 
 .tab-favicon {
+  /* necessary to avoid flicker when hovering the close button */
+  flex-shrink: 0;
   display: inline-block;
   background-size: cover;
   background-position: center;
@@ -33,4 +37,13 @@ html, body {
   margin-left: 5px;
   margin-right: 5px;
   vertical-align: middle;
+}
+
+.close-button {
+  padding: 0 2px;
+  display: none;
+}
+
+.tab:hover > .close-button {
+  display: inline-block;
 }
