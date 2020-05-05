@@ -17,6 +17,10 @@ html, body {
   width: 100%;
 }
 
+.tab:hover {
+  background-color: #cccccc;
+}
+
 .tab-title {
   display: inline-block;
   align-self: center;
@@ -39,11 +43,42 @@ html, body {
   vertical-align: middle;
 }
 
-.close-button {
-  padding: 0 2px;
+.close-button-parent {
+  width: 17px;
+  height: 17px;
+  margin-right: 4px;
   display: none;
 }
 
-.tab:hover > .close-button {
+.tab:hover > .close-button-parent {
   display: inline-block;
+}
+
+.close-button-parent:hover {
+  background-color: #707070;
+}
+
+.close-button-outer {
+  height: 15px;
+  width: 2px;
+  margin-left: 6.2px;
+  margin-top: 1.2px;
+  background-color: black;
+  transform: rotate(45deg);
+  Z-index: 1;
+}
+
+.close-button-inner {
+  height: 15px;
+  width: 2px;
+  background-color: black;
+  transform: rotate(90deg);
+  Z-index: 2;
+}
+
+.close-button-parent:hover .close-button-outer {
+  background-color: #cccccc;
+}
+.close-button-parent:hover .close-button-inner {
+  background-color: #cccccc;
 }

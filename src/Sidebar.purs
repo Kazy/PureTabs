@@ -71,15 +71,25 @@ createTabElement port tab' = do
   J.setText tab.title tabTitle
   J.append tabTitle tabDiv
   -- close button
-  closeButton <- J.create "<div>"
-  J.addClass "close-button" closeButton
-  J.setText "×" closeButton
+  closeButton <- createCloseButton
   J.append closeButton tabDiv
   J.on "click" onCloseClick closeButton
   pure tabDiv
   where
   onCloseClick :: J.JQueryEvent -> J.JQuery -> Effect Unit
   onCloseClick event j = Runtime.postMessageJson port $ SbTabDeleted $ view _tabId tab'
+
+createCloseButton :: Effect J.JQuery
+createCloseButton = do
+  parent <- J.create "<div>"
+  J.addClass "close-button-parent" parent
+  outer <- J.create "<div>"
+  J.addClass "close-button-outer" outer
+  J.append outer parent
+  inner <- J.create "<div>"
+  J.addClass "close-button-inner" inner
+  J.append inner outer
+  pure parent
 
 setFaviconUrl :: Maybe String -> J.JQuery -> Effect Unit
 setFaviconUrl Nothing div = pure unit
