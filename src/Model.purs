@@ -1,10 +1,13 @@
 module PureTabs.Model
   ( Window
   , GlobalState
+  , _id
+  , _active
   , _tabs
   , _port
   , _windows
   , _portFromWindow
+  , _portFromWindowId
   , _tabFromWindow
   , _tabWindowId
   , _tabId
@@ -19,6 +22,7 @@ import Browser.Runtime (Port)
 import Browser.Tabs (TabId, WindowId, Tab)
 import Browser.Tabs.OnUpdated (ChangeInfo(..))
 import Control.Alt (map)
+import Control.Bind (join)
 import Data.Function (($))
 import Data.Generic.Rep (class Generic)
 import Data.Generic.Rep.Show (genericShow)
@@ -26,7 +30,7 @@ import Data.Lens (Lens', Traversal', _Just, view)
 import Data.Lens.At (at)
 import Data.Lens.Iso.Newtype (_Newtype)
 import Data.Lens.Record (prop)
-import Data.List (List, catMaybes)
+import Data.List (List, catMaybes, head)
 import Data.Map (Map, empty, fromFoldableWith, lookup, singleton, union, values)
 import Data.Maybe (Maybe(..))
 import Data.Newtype (unwrap)
@@ -62,6 +66,9 @@ _tabTitle = _Newtype <<< _title
 _id :: forall a r. Lens' { id :: a | r } a
 _id = prop (SProxy ::_ "id")
 
+_active :: forall a r. Lens' { active :: a | r } a
+_active = prop (SProxy ::_ "active")
+
 _tabId :: Lens' Tab TabId
 _tabId = _Newtype <<< _id
 
@@ -72,16 +79,19 @@ _tabWindowId :: Lens' Tab WindowId
 _tabWindowId = _Newtype <<< _windowId
 
 _portFromWindow :: Tab -> Traversal' GlobalState Port
-_portFromWindow tab' = _windows <<< (at tab.windowId) <<< _Just <<< _port <<< _Just
+_portFromWindow tab' = _portFromWindowId tab.windowId
   where
   tab = unwrap tab'
+
+_portFromWindowId :: WindowId -> Traversal' GlobalState Port
+_portFromWindowId wid = _windows <<< (at wid) <<< _Just <<< _port <<< _Just
 
 _tabFromWindow :: Tab -> Traversal' GlobalState (Maybe Tab)
 _tabFromWindow tab' = _windows <<< (at tab.windowId) <<< _Just <<< _tabs <<< (at tab.id)
   where
   tab = unwrap tab'
 
-_tabFromTabIdAndWindow :: GlobalState -> TabId -> List Tab
+_tabFromTabIdAndWindow :: GlobalState -> TabId -> Maybe Tab
 _tabFromTabIdAndWindow s tabId =
   let
     allWindows = values s.windows
@@ -90,7 +100,7 @@ _tabFromTabIdAndWindow s tabId =
 
     matchingTabId = map (lookup tabId) allTabs
   in
-    catMaybes matchingTabId
+    join $ head matchingTabId
 
 initialGlobalState :: GlobalState
 initialGlobalState =
@@ -118,7 +128,7 @@ data BackgroundEvent
   | BgTabDeleted TabId
   | BgTabUpdated TabId ChangeInfo Tab
   | BgTabMoved
-  | BgTabActived TabId
+  | BgTabActived (Maybe TabId) TabId
   | BgTabAttached Tab
   | BgTabDetached TabId
   | BgTabHighlighted
@@ -132,6 +142,7 @@ instance showBackgroundEvent :: Show BackgroundEvent where
 
 data SidebarEvent
   = SbTabDeleted TabId
+  | SbTabActived TabId
   | SbTabCreated
   | SbTabMoved
   | SbTabDetached

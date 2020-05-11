@@ -1,4 +1,4 @@
-module Browser.Tabs (WindowId, TabId(..), Tab(..), query, remove, removeOne) where
+module Browser.Tabs (WindowId, TabId(..), Tab(..), query, remove, removeOne, update, activateTab) where
 
 import Browser.Utils (unwrapForeign)
 import Control.Alt (map)
@@ -16,7 +16,7 @@ import Data.Number.Format (toString)
 import Data.Ord (class Ord)
 import Data.Show (class Show)
 import Data.Traversable (traverse)
-import Data.Unit (Unit, unit)
+import Data.Unit (Unit)
 import Effect (Effect)
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
@@ -24,6 +24,7 @@ import Foreign (Foreign)
 import Foreign.Class (class Decode, class Encode)
 import Foreign.Generic (defaultOptions, genericDecode, genericEncode)
 import Prelude (bind, pure)
+import Prim.Row (class Union)
 
 newtype WindowId
   = WindowId Number
@@ -61,7 +62,9 @@ instance encodeTabId :: Encode TabId where
 instance decodeTabId :: Decode TabId where
   decode x = genericDecode (defaultOptions { unwrapSingleConstructors = true }) x
 
-newtype Tab = Tab { active :: Boolean
+newtype Tab
+  = Tab
+  { active :: Boolean
   , attention :: Maybe Boolean
   , audible :: Maybe Boolean
   , autoDiscardable :: Maybe Boolean
@@ -71,8 +74,8 @@ newtype Tab = Tab { active :: Boolean
   , height :: Maybe Number
   , hidden :: Boolean
   , highlighted :: Boolean
-  , -- should be optional
-    id :: TabId
+  -- should be optional
+  , id :: TabId
   , incognito :: Boolean
   , index :: Number
   , isArticle :: Maybe Boolean
@@ -82,7 +85,7 @@ newtype Tab = Tab { active :: Boolean
   , pinned :: Boolean
   , sessionId :: Maybe String
   , status :: Maybe String
-   -- create an enum for that successorTabId :: Maybe Number
+  -- create an enum for that successorTabId :: Maybe Number
   , title :: String
   , url :: Maybe String
   , width :: Maybe Number
@@ -102,28 +105,47 @@ instance encodeTab :: Encode Tab where
 instance decodeTab :: Decode Tab where
   decode x = genericDecode (defaultOptions { unwrapSingleConstructors = true }) x
 
-
 foreign import queryImpl :: Effect (Promise (Array Foreign))
 
 query :: Aff (List Tab)
-query = do 
+query = do
   tabsArray <- toAffE queryImpl
-  let tabsList = fromFoldable tabsArray
+  let
+    tabsList = fromFoldable tabsArray
   parsed <- liftEffect $ traverse unwrapForeign tabsList
   pure parsed
-
 
 foreign import remove' :: (Array Number) -> Effect (Promise Unit)
 
 remove :: (List TabId) -> Aff Unit
-remove tabs = 
-  let tabIdsArray = toUnfoldable $ map unwrap tabs
-   in
-  toAffE $ remove' tabIdsArray
-
+remove tabs =
+  let
+    tabIdsArray = toUnfoldable $ map unwrap tabs
+  in
+    toAffE $ remove' tabIdsArray
   where
-        unwrap (TabId n) = n
+  unwrap (TabId n) = n
 
 removeOne :: TabId -> Aff Unit
 removeOne tabId = remove (singleton tabId)
 
+type RowUpdateProperties
+  = ( active :: Boolean
+    , autoDiscardable :: Boolean
+    , highlighted :: Boolean
+    , loadReplace :: Boolean
+    , muted :: Boolean
+    , openerTabId :: TabId
+    , pinned :: Boolean
+    , successorTabId :: TabId
+    , url :: String
+    )
+
+foreign import update' :: forall given trash. Union given trash RowUpdateProperties => { | given } -> TabId -> Effect (Promise Tab)
+
+update :: forall prop b. Union prop b RowUpdateProperties => { | prop } -> TabId -> Aff Tab
+update props tabId = toAffE $ update' props tabId
+
+
+activateTab :: TabId -> Aff Tab
+activateTab tabId = update { active: true } tabId

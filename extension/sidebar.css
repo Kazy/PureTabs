@@ -14,11 +14,20 @@ html, body {
   border: solid #cfcfcf 1px;
   margin-bottom: 1px;
   padding-left: 2px;
+  padding-bottom: 2px;
   width: 100%;
+}
+
+.tab.active {
+  background-color: #d4f2fc;
 }
 
 .tab:hover {
   background-color: #cccccc;
+}
+
+.tab.active:hover {
+  background-color: #b2dceb;
 }
 
 .tab-title {

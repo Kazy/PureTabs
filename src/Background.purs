@@ -1,18 +1,23 @@
 module PureTabs.Background where
 
 import Browser.Runtime as Runtime
-import Browser.Tabs (Tab, TabId, WindowId, query, removeOne)
+import Browser.Tabs (Tab, TabId, WindowId, query, removeOne, activateTab)
+import Browser.Tabs.OnActivated as TabsOnActivated
 import Browser.Tabs.OnCreated as TabsOnCreated
 import Browser.Tabs.OnRemoved as TabsOnRemoved
 import Browser.Tabs.OnUpdated (ChangeInfo(..))
 import Browser.Tabs.OnUpdated as TabsOnUpdated
 import Browser.Utils (Listener, mkListenerOne, mkListenerTwo, mkListenerUnit)
+import Control.Alt ((<$>))
 import Control.Alternative (pure, (*>))
+import Control.Bind ((>>=))
+import Control.Category (identity, (>>>))
 import Data.Array (fromFoldable)
 import Data.Foldable (for_)
 import Data.Function (flip)
 import Data.Lens (_Just, over, preview, set)
 import Data.Lens.At (at)
+import Data.Lens.Iso.Newtype (_Newtype)
 import Data.List (List, foldr, foldMap)
 import Data.Map (empty, lookup, values)
 import Data.Maybe (Maybe(..), maybe)
@@ -27,7 +32,7 @@ import Effect.Class (liftEffect)
 import Effect.Console (log)
 import Effect.Ref as Ref
 import Prelude (Unit, bind, ($), discard, (<<<))
-import PureTabs.Model (BackgroundEvent(..), GlobalState, SidebarEvent(..), _port, _portFromWindow, _tabFromTabIdAndWindow, _tabFromWindow, _windows, tabsToGlobalState)
+import PureTabs.Model (BackgroundEvent(..), GlobalState, SidebarEvent(..), _active, _port, _portFromWindow, _portFromWindowId, _tabFromTabIdAndWindow, _tabFromWindow, _windows, tabsToGlobalState)
 
 type Ports
   = Ref.Ref (List Runtime.Port)
@@ -48,13 +53,11 @@ main = do
 
 initializeBackground :: Ref.Ref GlobalState -> Effect Unit
 initializeBackground ref = do
-  _ <- TabsOnCreated.addListener $ onTabCreated ref
-  tabDeletedListener <- mkListenerTwo $ onTabDeleted ref
-  _ <- TabsOnRemoved.addListener tabDeletedListener
-  _ <- TabsOnUpdated.addListener $ onTabUpdated ref
-  onConnectedListener <- mkListenerOne $ onConnect ref
-  Runtime.onConnectAddListener onConnectedListener
-  pure unit
+  TabsOnCreated.addListener $ onTabCreated ref
+  (mkListenerTwo $ onTabDeleted ref) >>= TabsOnRemoved.addListener 
+  TabsOnActivated.addListener $ onTabActived ref
+  TabsOnUpdated.addListener $ onTabUpdated ref
+  (mkListenerOne $ onConnect ref) >>= Runtime.onConnectAddListener
 
 onTabCreated :: (Ref.Ref GlobalState) -> Tab -> Effect Unit
 onTabCreated stateRef tab' = do
@@ -74,6 +77,33 @@ onTabUpdated stateRef tid cinfo tab' = do
   case (preview (_portFromWindow tab') state) of
     Nothing -> pure unit
     Just port -> Runtime.postMessageJson port $ BgTabUpdated tid cinfo tab'
+
+onTabActived :: (Ref.Ref GlobalState) -> TabsOnActivated.ActiveInfo -> Effect Unit
+onTabActived stateRef (TabsOnActivated.ActiveInfo aInfo) = do
+  traceM aInfo
+  state <- Ref.modify (updateGlobalState aInfo.previousTabId aInfo.tabId) stateRef
+  case (preview (_portFromWindowId aInfo.windowId) state) of
+    Nothing -> pure unit
+    Just port -> Runtime.postMessageJson port $ BgTabActived aInfo.previousTabId aInfo.tabId
+  where
+  updateGlobalState :: (Maybe TabId) -> TabId -> GlobalState -> GlobalState
+  updateGlobalState prev new state =
+    let
+      -- TODO: we have the windowId, we can directly get the tab from that
+      -- without using _tabFromTabIdAndWindow that goes through all the windows.
+      prevTab = prev >>= _tabFromTabIdAndWindow state
+
+      prevTabF :: GlobalState -> GlobalState
+      prevTabF = maybe identity (\t -> set (_activeTab t) false) prevTab
+
+      newTab = _tabFromTabIdAndWindow state new
+
+      newTabF :: GlobalState -> GlobalState
+      newTabF = maybe identity (\t -> set (_activeTab t) true) newTab
+
+      _activeTab t = (_tabFromWindow t) <<< _Just <<< _Newtype <<< _active
+    in
+      (prevTabF >>> newTabF) state
 
 onTabDeleted :: (Ref.Ref GlobalState) -> TabId -> TabsOnRemoved.RemoveInfo -> Effect Unit
 onTabDeleted stateRef tabId info = do
@@ -144,6 +174,9 @@ initWindowState port ref winId =
 -- the data required
 manageSidebar :: (Ref.Ref GlobalState) -> Runtime.Port -> SidebarEvent -> Effect Unit
 manageSidebar stateRef port (SbTabDeleted tabId) = launchAff_ $ removeOne tabId
+
+manageSidebar stateRef port (SbTabActived tabId) = launchAff_ $ activateTab tabId
+
 manageSidebar stateRef port msg = pure unit
 
 onDisconnect :: forall a. (Ref.Ref GlobalState) -> WindowId -> Listener a -> Effect Unit

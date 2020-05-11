@@ -1,11 +1,11 @@
 module PureTabs.Sidebar where
 
 import Browser.Runtime as Runtime
-import Browser.Tabs (Tab, TabId, WindowId)
+import Browser.Tabs (Tab(..), TabId, WindowId)
 import Browser.Tabs.OnUpdated (ChangeInfo(..))
 import Browser.Windows (getCurrent)
-import Control.Alternative (pure, (*>))
-import Control.Bind ((>=>))
+import Control.Alternative (pure)
+import Control.Bind ((>=>), (>>=))
 import Data.Foldable (traverse_)
 import Data.Function (flip)
 import Data.Lens (view)
@@ -51,6 +51,7 @@ initSidebar port winId = do
     BgTabDeleted tabId -> deleteTabElement tabId
     BgInitialTabList tabs -> traverse_ (createTabElement port >=> (flip J.append) contentDiv) tabs
     BgTabUpdated tid cinfo tab -> updateTabInfo tid cinfo tab
+    BgTabActived prev new -> activateTab prev new
     _ -> log "received unsupported message type"
 
 createTabElement :: Runtime.Port -> Tab -> Effect J.JQuery
@@ -60,6 +61,8 @@ createTabElement port tab' = do
   tabDiv <- J.create "<div>"
   J.setAttr "class" "tab" tabDiv
   J.setAttr "id" tab.id tabDiv
+  J.on "click" onTabClick tabDiv
+  if tab.active then (J.addClass "active" tabDiv) else (pure unit)
   -- favicon
   faviconDiv <- J.create "<div>"
   J.addClass "tab-favicon" faviconDiv
@@ -78,6 +81,9 @@ createTabElement port tab' = do
   where
   onCloseClick :: J.JQueryEvent -> J.JQuery -> Effect Unit
   onCloseClick event j = Runtime.postMessageJson port $ SbTabDeleted $ view _tabId tab'
+
+  onTabClick :: J.JQueryEvent -> J.JQuery -> Effect Unit
+  onTabClick event j = Runtime.postMessageJson port $ SbTabActived $ view _tabId tab'
 
 createCloseButton :: Effect J.JQuery
 createCloseButton = do
@@ -104,11 +110,7 @@ deleteTabElement tabId = do
   J.remove div
 
 updateTabInfo :: TabId -> ChangeInfo -> Tab -> Effect Unit
-updateTabInfo tid cinfo' tab' = do
-  let
-    tab = unwrap tab'
-
-    cinfo = unwrap cinfo'
+updateTabInfo tid (ChangeInfo cinfo) (Tab tab) = do
   tabTitleDiv <- J.select ("#" <> (show tid) <> " > .tab-title")
   let
     newTitle = case cinfo.status of
@@ -117,3 +119,9 @@ updateTabInfo tid cinfo' tab' = do
   maybe (pure unit) (\t -> J.setText t tabTitleDiv) newTitle
   tabFaviconDiv <- J.select ("#" <> (show tid) <> " > .tab-favicon")
   setFaviconUrl cinfo.favIconUrl tabFaviconDiv
+
+activateTab :: (Maybe TabId) -> TabId -> Effect Unit
+activateTab prev new = do
+  maybe (pure unit) (\p -> (J.select ("#" <> (show p))) >>= J.setClass "active" false) prev
+  newTab <- J.select ("#" <> (show new))
+  J.setClass "active" true newTab
