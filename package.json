@@ -7,13 +7,14 @@
   },
   "scripts": {
     "parcel": "parcel",
-    "dev": "spago build --watch & parcel watch src/background.js -d extension/",
-    "build": "spago build && parcel build src/background.js -d extension/",
+    "dev": "concurrently --kill-others \"spago build --watch\" \"parcel watch src/background.js src/sidebar.js -d extension/\"",
+    "build": "spago build && parcel build src/background.js src/sidebar.js -d extension/",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "concurrently": "^5.2.0",
     "parcel": "^1.12.4"
   }
 }

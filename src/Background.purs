@@ -2,25 +2,25 @@ module PureTabs.Background where
 
 import Browser.Runtime as Runtime
 import Browser.Tabs (Tab, TabId, WindowId, query, removeOne, activateTab)
-import Browser.Tabs.OnActivated as TabsOnActivated
-import Browser.Tabs.OnCreated as TabsOnCreated
-import Browser.Tabs.OnRemoved as TabsOnRemoved
-import Browser.Tabs.OnUpdated (ChangeInfo(..))
-import Browser.Tabs.OnUpdated as TabsOnUpdated
+import Browser.Tabs.OnActivated as OnActivated
+import Browser.Tabs.OnCreated as OnCreated
+import Browser.Tabs.OnMoved as OnMoved
+import Browser.Tabs.OnRemoved as OnRemoved
+import Browser.Tabs.OnUpdated as OnUpdated
 import Browser.Utils (Listener, mkListenerOne, mkListenerTwo, mkListenerUnit)
-import Control.Alt ((<$>))
-import Control.Alternative (pure, (*>))
+import Control.Alt ((<#>))
+import Control.Alternative (empty, pure, (*>))
 import Control.Bind ((>>=))
 import Control.Category (identity, (>>>))
-import Data.Array (fromFoldable)
+import Data.Array (catMaybes, deleteAt, foldl, fromFoldable, insertAt, mapWithIndex, (!!))
 import Data.Foldable (for_)
-import Data.Function (flip)
-import Data.Lens (_Just, over, preview, set)
+import Data.Function (flip, (#))
+import Data.Lens (_Just, over, preview, set, view)
 import Data.Lens.At (at)
 import Data.Lens.Iso.Newtype (_Newtype)
-import Data.List (List, foldr, foldMap)
-import Data.Map (empty, lookup, values)
-import Data.Maybe (Maybe(..), maybe)
+import Data.List (List, foldMap, foldr)
+import Data.Map as M
+import Data.Maybe (Maybe(..), maybe, maybe')
 import Data.Monoid ((<>))
 import Data.Newtype (unwrap)
 import Data.Show (show)
@@ -30,9 +30,10 @@ import Effect (Effect)
 import Effect.Aff (Aff, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
+import Effect.Exception.Unsafe (unsafeThrow)
 import Effect.Ref as Ref
 import Prelude (Unit, bind, ($), discard, (<<<))
-import PureTabs.Model (BackgroundEvent(..), GlobalState, SidebarEvent(..), _active, _port, _portFromWindow, _portFromWindowId, _tabFromTabIdAndWindow, _tabFromWindow, _windows, tabsToGlobalState)
+import PureTabs.Model (BackgroundEvent(..), GlobalState, SidebarEvent(..), _active, _index, _port, _portFromWindow, _portFromWindowId, _positions, _tabFromTabIdAndWindow, _tabFromWindow, _tabs, _windowIdToWindow, _windows, tabsToGlobalState)
 
 type Ports
   = Ref.Ref (List Runtime.Port)
@@ -45,18 +46,22 @@ main = do
   runMain :: Aff Unit
   runMain = do
     allTabs <- query
+    traceM allTabs
     liftEffect
       $ do
           state <- Ref.new $ tabsToGlobalState allTabs
+          readState <- Ref.read state
+          traceM readState
           initializeBackground state
           log "all listener initialized"
 
 initializeBackground :: Ref.Ref GlobalState -> Effect Unit
 initializeBackground ref = do
-  TabsOnCreated.addListener $ onTabCreated ref
-  (mkListenerTwo $ onTabDeleted ref) >>= TabsOnRemoved.addListener 
-  TabsOnActivated.addListener $ onTabActived ref
-  TabsOnUpdated.addListener $ onTabUpdated ref
+  OnCreated.addListener $ onTabCreated ref
+  (mkListenerTwo $ onTabDeleted ref) >>= OnRemoved.addListener
+  OnActivated.addListener $ onTabActived ref
+  OnUpdated.addListener $ onTabUpdated ref
+  (mkListenerTwo $ onTabMoved ref) >>= OnMoved.addListener
   (mkListenerOne $ onConnect ref) >>= Runtime.onConnectAddListener
 
 onTabCreated :: (Ref.Ref GlobalState) -> Tab -> Effect Unit
@@ -71,16 +76,56 @@ onTabCreated stateRef tab' = do
   where
   tab = unwrap tab'
 
-onTabUpdated :: (Ref.Ref GlobalState) -> TabId -> ChangeInfo -> Tab -> Effect Unit
+onTabUpdated :: (Ref.Ref GlobalState) -> TabId -> OnUpdated.ChangeInfo -> Tab -> Effect Unit
 onTabUpdated stateRef tid cinfo tab' = do
   state <- Ref.modify (set (_tabFromWindow tab') (Just tab')) stateRef
   case (preview (_portFromWindow tab') state) of
     Nothing -> pure unit
     Just port -> Runtime.postMessageJson port $ BgTabUpdated tid cinfo tab'
 
-onTabActived :: (Ref.Ref GlobalState) -> TabsOnActivated.ActiveInfo -> Effect Unit
-onTabActived stateRef (TabsOnActivated.ActiveInfo aInfo) = do
-  traceM aInfo
+onTabMoved :: (Ref.Ref GlobalState) -> TabId -> OnMoved.MoveInfo -> Effect Unit
+onTabMoved ref tid minfo = do
+  s <- Ref.modify (updateState minfo) ref
+  case (preview (_portFromWindowId minfo.windowId) s) of
+    Nothing -> pure unit
+    Just port -> Runtime.postMessageJson port $ BgTabMoved tid minfo.fromIndex minfo.toIndex
+  where
+  updateState :: OnMoved.MoveInfo -> GlobalState -> GlobalState
+  updateState minfo' state =
+    let
+      newState = updatePositions minfo' state
+
+      newPositions :: Array TabId
+      newPositions = view ((_windowIdToWindow minfo'.windowId) <<< _positions) newState
+    in
+      over ((_windowIdToWindow minfo'.windowId) <<< _tabs) (updateTabsIndex newPositions) newState
+
+  updatePositions :: OnMoved.MoveInfo -> GlobalState -> GlobalState
+  updatePositions minfo' = over ((_windowIdToWindow minfo'.windowId) <<< _positions) $ unsafeUpdatePositions minfo'
+
+  updateTabsIndex :: Array TabId -> M.Map TabId Tab -> M.Map TabId Tab
+  updateTabsIndex positions tabs =
+    let
+      modifyFuncs :: Array (M.Map TabId Tab -> M.Map TabId Tab)
+      modifyFuncs = mapWithIndex (\idx tid' -> set (at tid' <<< _Just <<< _Newtype <<< _index) idx) positions
+    in
+      foldl (#) tabs modifyFuncs
+
+  unsafeUpdatePositions :: OnMoved.MoveInfo -> Array TabId -> Array TabId
+  unsafeUpdatePositions minfo' =
+    (moveElement minfo'.fromIndex minfo'.toIndex)
+      -- the indexes should exist, we need to revisit the code if it doesn't
+      
+      >>> (maybe' (\_ -> unsafeThrow "invalid indexes") identity)
+
+  moveElement :: forall a. Int -> Int -> Array a -> Maybe (Array a)
+  moveElement from to arr = do
+    tab <- arr !! from
+    deleteAt from arr >>= insertAt to tab
+
+onTabActived :: (Ref.Ref GlobalState) -> OnActivated.ActiveInfo -> Effect Unit
+onTabActived stateRef (OnActivated.ActiveInfo aInfo) = do
+  log $ "activated " <> show aInfo.tabId
   state <- Ref.modify (updateGlobalState aInfo.previousTabId aInfo.tabId) stateRef
   case (preview (_portFromWindowId aInfo.windowId) state) of
     Nothing -> pure unit
@@ -105,7 +150,7 @@ onTabActived stateRef (TabsOnActivated.ActiveInfo aInfo) = do
     in
       (prevTabF >>> newTabF) state
 
-onTabDeleted :: (Ref.Ref GlobalState) -> TabId -> TabsOnRemoved.RemoveInfo -> Effect Unit
+onTabDeleted :: (Ref.Ref GlobalState) -> TabId -> OnRemoved.RemoveInfo -> Effect Unit
 onTabDeleted stateRef tabId info = do
   state <- Ref.read stateRef
   let
@@ -135,15 +180,12 @@ onConnect stateRef' port = do
     SbHasWindowId winId -> log ("bg: created winId " <> show winId) *> callback winId
     _ -> pure unit
 
+-- | Initialize the data and the listeners of a new window, and send the current window state.
 onNewWindowId ::
   forall a.
   Runtime.Port ->
   (Ref.Ref GlobalState) ->
-  ( Ref.Ref
-      ( Maybe
-          (Listener a)
-      )
-  ) ->
+  (Ref.Ref (Maybe (Listener a))) ->
   WindowId -> Effect Unit
 onNewWindowId port stateRef listenerRef winId = do
   -- initial state of the current window
@@ -154,19 +196,27 @@ onNewWindowId port stateRef listenerRef winId = do
   Ref.write Nothing listenerRef
   -- send initial tabs
   maybe (pure unit)
-    (\w -> Runtime.postMessageJson port $ BgInitialTabList $ fromFoldable $ values w.tabs)
-    (lookup winId r.windows)
+    ( \w ->
+        Runtime.postMessageJson port
+          $ BgInitialTabList
+          $ fromFoldable
+          $ w.positions
+          <#> (flip M.lookup w.tabs)
+          # catMaybes
+    )
+    (M.lookup winId r.windows)
   --  add the new onMessage listener
   sidebarListener <- Runtime.onMessageJsonAddListener port $ manageSidebar stateRef port
   onDisconnectListener <- mkListenerUnit $ onDisconnect stateRef winId sidebarListener
   Runtime.portOnDisconnect port onDisconnectListener
 
+-- | Set the port of a new window connecting. If the window doesn't exist, initialize a new data
 initWindowState :: Runtime.Port -> (Ref.Ref GlobalState) -> WindowId -> Effect GlobalState
 initWindowState port ref winId =
   (flip Ref.modify) ref
     $ over (_windows <<< (at winId))
         ( case _ of
-            Nothing -> Just $ { tabs: empty, port: Just port }
+            Nothing -> Just $ { tabs: M.empty, port: Just port, positions: empty }
             Just win -> Just $ set _port (Just port) win
         )
 

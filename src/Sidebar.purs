@@ -6,12 +6,12 @@ import Browser.Tabs.OnUpdated (ChangeInfo(..))
 import Browser.Windows (getCurrent)
 import Control.Alternative (pure)
 import Control.Bind ((>=>), (>>=))
+import Data.CommutativeRing ((+))
+import Data.Eq ((==))
 import Data.Foldable (traverse_)
 import Data.Function (flip)
-import Data.Lens (view)
 import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid ((<>))
-import Data.Newtype (unwrap)
 import Data.Show (show)
 import Data.Unit (unit)
 import Debug.Trace (traceM)
@@ -20,8 +20,9 @@ import Effect.Aff (Aff, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
 import JQuery as J
+import JQuery.Ext (after) as J
 import Prelude (Unit, bind, ($), discard)
-import PureTabs.Model (BackgroundEvent(..), SidebarEvent(..), _tabId)
+import PureTabs.Model (BackgroundEvent(..), SidebarEvent(..))
 
 main :: Effect Unit
 main = do
@@ -52,12 +53,11 @@ initSidebar port winId = do
     BgInitialTabList tabs -> traverse_ (createTabElement port >=> (flip J.append) contentDiv) tabs
     BgTabUpdated tid cinfo tab -> updateTabInfo tid cinfo tab
     BgTabActived prev new -> activateTab prev new
+    BgTabMoved tid prevPos newPos -> moveTab tid prevPos newPos
     _ -> log "received unsupported message type"
 
 createTabElement :: Runtime.Port -> Tab -> Effect J.JQuery
-createTabElement port tab' = do
-  let
-    tab = unwrap tab'
+createTabElement port (Tab tab) = do
   tabDiv <- J.create "<div>"
   J.setAttr "class" "tab" tabDiv
   J.setAttr "id" tab.id tabDiv
@@ -80,10 +80,10 @@ createTabElement port tab' = do
   pure tabDiv
   where
   onCloseClick :: J.JQueryEvent -> J.JQuery -> Effect Unit
-  onCloseClick event j = Runtime.postMessageJson port $ SbTabDeleted $ view _tabId tab'
+  onCloseClick event j = Runtime.postMessageJson port $ SbTabDeleted tab.id
 
   onTabClick :: J.JQueryEvent -> J.JQuery -> Effect Unit
-  onTabClick event j = Runtime.postMessageJson port $ SbTabActived $ view _tabId tab'
+  onTabClick event j = Runtime.postMessageJson port $ SbTabActived tab.id
 
 createCloseButton :: Effect J.JQuery
 createCloseButton = do
@@ -125,3 +125,15 @@ activateTab prev new = do
   maybe (pure unit) (\p -> (J.select ("#" <> (show p))) >>= J.setClass "active" false) prev
   newTab <- J.select ("#" <> (show new))
   J.setClass "active" true newTab
+
+moveTab :: TabId -> Int -> Int -> Effect Unit
+moveTab tabId prev new =
+  do
+    tabDiv <- J.select $ "#" <> show tabId
+    J.remove tabDiv
+    if new == 0 then do
+      firstChild <- J.select $ "#tabs > .tab:nth-child(" <> (show $ new + 1) <> ")"
+      J.before tabDiv firstChild
+    else do
+      child <- J.select $ "#tabs > .tab:nth-child(" <> (show $ new) <> ")"
+      J.after tabDiv child

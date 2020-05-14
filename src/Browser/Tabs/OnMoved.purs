@@ -1,19 +1,16 @@
-module Browser.Tabs.OnMoved (addListener, removeListener) where
+module Browser.Tabs.OnMoved (addListener, removeListener, MoveInfo) where
 
-import Browser.Tabs (TabId(..), WindowId)
-import Browser.Utils (Listener2, UnregisteredListener2)
-import Control.Alternative (pure)
-import Data.Unit (Unit, unit)
+import Browser.Tabs (TabId, WindowId)
+import Browser.Utils (Listener2)
+import Data.Unit (Unit)
 import Effect (Effect)
-import Undefined (undefined)
 
-type MoveInfo = { windowId :: WindowId
-  , fromIndex :: Number
-  , toIndex :: Number
-} 
+type MoveInfo
+  = { windowId :: WindowId
+    , fromIndex :: Int
+    , toIndex :: Int
+    }
 
-addListener :: (UnregisteredListener2 TabId MoveInfo) -> Effect Unit
-addListener lst = undefined
+foreign import addListener :: (Listener2 TabId MoveInfo) -> Effect Unit
 
-removeListener :: (Listener2 TabId MoveInfo) -> Effect Unit
-removeListener lst = undefined
+foreign import removeListener :: (Listener2 TabId MoveInfo) -> Effect Unit

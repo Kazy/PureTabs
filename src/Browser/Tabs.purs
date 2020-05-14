@@ -77,7 +77,7 @@ newtype Tab
   -- should be optional
   , id :: TabId
   , incognito :: Boolean
-  , index :: Number
+  , index :: Int
   , isArticle :: Maybe Boolean
   , isInReaderMode :: Boolean
   , lastAccessed :: Number
