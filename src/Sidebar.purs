@@ -63,6 +63,7 @@ createTabElement port (Tab tab) = do
   J.setAttr "id" tab.id tabDiv
   J.on "click" onTabClick tabDiv
   if tab.active then (J.addClass "active" tabDiv) else (pure unit)
+  if isDiscarded tab then (J.addClass "discarded" tabDiv) else (pure unit)
   -- favicon
   faviconDiv <- J.create "<div>"
   J.addClass "tab-favicon" faviconDiv
@@ -84,6 +85,10 @@ createTabElement port (Tab tab) = do
 
   onTabClick :: J.JQueryEvent -> J.JQuery -> Effect Unit
   onTabClick event j = Runtime.postMessageJson port $ SbTabActived tab.id
+
+  isDiscarded :: forall r. { discarded :: Maybe Boolean | r } -> Boolean
+  isDiscarded { discarded: Just true } = true
+  isDiscarded _ = false
 
 createCloseButton :: Effect J.JQuery
 createCloseButton = do
@@ -117,6 +122,7 @@ updateTabInfo tid (ChangeInfo cinfo) (Tab tab) = do
       Just "loading" -> Just "Loading ..."
       _ -> Just tab.title
   maybe (pure unit) (\t -> J.setText t tabTitleDiv) newTitle
+  maybe (pure unit) (\discarded -> J.setClass "discarded" discarded tabTitleDiv) tab.discarded
   tabFaviconDiv <- J.select ("#" <> (show tid) <> " > .tab-favicon")
   setFaviconUrl cinfo.favIconUrl tabFaviconDiv
 
