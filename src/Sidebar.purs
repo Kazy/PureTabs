@@ -20,7 +20,7 @@ import Effect.Aff (Aff, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
 import JQuery as J
-import JQuery.Ext (after) as J
+import JQuery.Ext (after, prepend) as J
 import Prelude (Unit, bind, ($), discard)
 import PureTabs.Model (BackgroundEvent(..), SidebarEvent(..))
 
@@ -39,22 +39,24 @@ initSidebar :: Runtime.Port -> WindowId -> Effect Unit
 initSidebar port winId = do
   log $ "windowId " <> (show winId)
   Runtime.postMessageJson port $ SbHasWindowId winId
-  tabsDiv <- J.select "#tabs"
-  _ <- Runtime.onMessageJsonAddListener port $ onMsg tabsDiv
+  _ <- Runtime.onMessageJsonAddListener port onMsg
   pure unit
   where
-  onMsg :: J.JQuery -> BackgroundEvent -> Effect Unit
-  onMsg contentDiv event = case event of
-    BgTabCreated tab -> do
-      tabElem <- createTabElement port tab
-      J.append tabElem contentDiv
-      pure unit
+  onMsg :: BackgroundEvent -> Effect Unit
+  onMsg event = case event of
+    BgTabCreated tab -> createTab port tab
     BgTabDeleted tabId -> deleteTabElement tabId
-    BgInitialTabList tabs -> traverse_ (createTabElement port >=> (flip J.append) contentDiv) tabs
+    BgInitialTabList tabs -> traverse_ (createTab port) tabs
     BgTabUpdated tid cinfo tab -> updateTabInfo tid cinfo tab
     BgTabActived prev new -> activateTab prev new
     BgTabMoved tid prevPos newPos -> moveTab tid prevPos newPos
     _ -> log "received unsupported message type"
+
+createTab :: Runtime.Port -> Tab -> Effect Unit
+createTab port (Tab tab) = do
+  tabsDiv <- J.select "#tabs"
+  tabElem <- createTabElement port (Tab tab)
+  insertTabAt tab.index tabElem
 
 createTabElement :: Runtime.Port -> Tab -> Effect J.JQuery
 createTabElement port (Tab tab) = do
@@ -88,6 +90,7 @@ createTabElement port (Tab tab) = do
 
   isDiscarded :: forall r. { discarded :: Maybe Boolean | r } -> Boolean
   isDiscarded { discarded: Just true } = true
+
   isDiscarded _ = false
 
 createCloseButton :: Effect J.JQuery
@@ -133,13 +136,16 @@ activateTab prev new = do
   J.setClass "active" true newTab
 
 moveTab :: TabId -> Int -> Int -> Effect Unit
-moveTab tabId prev new =
-  do
-    tabDiv <- J.select $ "#" <> show tabId
-    J.remove tabDiv
-    if new == 0 then do
-      firstChild <- J.select $ "#tabs > .tab:nth-child(" <> (show $ new + 1) <> ")"
-      J.before tabDiv firstChild
-    else do
-      child <- J.select $ "#tabs > .tab:nth-child(" <> (show $ new) <> ")"
-      J.after tabDiv child
+moveTab tabId prev new = do
+  tabDiv <- J.select $ "#" <> show tabId
+  J.remove tabDiv
+  insertTabAt new tabDiv
+
+insertTabAt :: Int -> J.JQuery -> Effect Unit
+insertTabAt 0 tabDiv = do
+  allTabs <- J.select "#tabs"
+  J.prepend tabDiv allTabs
+
+insertTabAt pos tabDiv = do
+  child <- J.select $ "#tabs > .tab:nth-child(" <> (show pos) <> ")"
+  J.after tabDiv child
