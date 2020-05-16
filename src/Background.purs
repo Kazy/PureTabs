@@ -1,7 +1,7 @@
 module PureTabs.Background where
 
 import Browser.Runtime as Runtime
-import Browser.Tabs (Tab, TabId, WindowId, query, removeOne, activateTab)
+import Browser.Tabs (Tab(..), TabId, WindowId, query, removeOne, activateTab)
 import Browser.Tabs.OnActivated as OnActivated
 import Browser.Tabs.OnCreated as OnCreated
 import Browser.Tabs.OnMoved as OnMoved
@@ -66,7 +66,16 @@ initializeBackground ref = do
 
 onTabCreated :: (Ref.Ref GlobalState) -> Tab -> Effect Unit
 onTabCreated stateRef tab' = do
-  state <- Ref.modify (set (_tabFromWindow tab') (Just tab')) stateRef
+  state <-
+    Ref.modify
+      ( set (_tabFromWindow tab') (Just tab')
+          *> over (_positions >>> _windowIdToWindow tab.windowId)
+          -- TODO: throw an error here instead. Encapsulate the manipulations of
+          -- the position array to make sure we always perform valid operation
+          -- and otherwise throw an error or recover from it.
+              (\p -> maybe p identity (insertAt tab.index tab.id p))
+      )
+      stateRef
   log $ "tabId: " <> (show tab.id) <> " windowId " <> show tab.windowId
   case (preview (_portFromWindow tab') state) of
     Nothing -> pure unit
@@ -156,7 +165,15 @@ onTabDeleted stateRef tabId info = do
   let
     allTabs = _tabFromTabIdAndWindow state tabId
 
-    newState = foldr (\t -> set (_tabFromWindow t) Nothing) state allTabs
+    deleteTabState :: Tab -> GlobalState -> GlobalState
+    deleteTabState t = set (_tabFromWindow t) Nothing
+
+    deletePositionState :: Tab -> GlobalState -> GlobalState
+    deletePositionState (Tab t) = over 
+      (_positions >>> _windowIdToWindow t.windowId)
+      (\p -> maybe p identity (deleteAt t.index p))
+
+    newState = foldr (\t -> deleteTabState t >>> deletePositionState t) state allTabs
   Ref.write newState stateRef
   for_ allTabs \t -> do
     let
