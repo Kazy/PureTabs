@@ -1,17 +1,20 @@
 module PureTabs.Sidebar where
 
 import Browser.Runtime as Runtime
-import Browser.Tabs (Tab(..), TabId, WindowId)
+import Browser.Tabs (Tab(..), TabId(..), WindowId)
 import Browser.Tabs.OnUpdated (ChangeInfo(..))
 import Browser.Windows (getCurrent)
 import Control.Alternative (pure)
-import Control.Bind ((>=>), (>>=))
+import Control.Bind ((=<<), (>=>), (>>=))
+import Control.Category ((<<<))
+import Control.Monad (liftM1)
 import Data.CommutativeRing ((+))
 import Data.Eq ((==))
 import Data.Foldable (traverse_)
 import Data.Function (flip)
 import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid ((<>))
+import Data.Number (fromString)
 import Data.Show (show)
 import Data.Unit (unit)
 import Debug.Trace (traceM)
@@ -19,10 +22,15 @@ import Effect (Effect)
 import Effect.Aff (Aff, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
+import Effect.Exception (throw)
 import JQuery as J
-import JQuery.Ext (after, prepend) as J
+import JQuery.Ext (after, prepend, getHtmlElem) as J
 import Prelude (Unit, bind, ($), discard)
 import PureTabs.Model (BackgroundEvent(..), SidebarEvent(..))
+import Sortable (Sortable, create, Event) as S
+import Web.DOM.Element (id)
+import Web.HTML (HTMLElement)
+import Web.HTML.HTMLElement (toElement)
 
 main :: Effect Unit
 main = do
@@ -35,11 +43,21 @@ main = do
     currentWindow <- getCurrent
     liftEffect $ initSidebar port currentWindow.id
 
+sortableOnUpdate :: Runtime.Port -> S.Event -> Effect Unit
+sortableOnUpdate port { item: item, newIndex: Just newIndex } = do
+  sTabId <- id $ toElement item
+  case fromString sTabId of 
+       Nothing -> throw $ "couldn't convert to a tab id " <> sTabId
+       Just tabId' -> Runtime.postMessageJson port $ SbTabMoved (TabId tabId') newIndex
+sortableOnUpdate port _ = pure unit
+
 initSidebar :: Runtime.Port -> WindowId -> Effect Unit
 initSidebar port winId = do
   log $ "windowId " <> (show winId)
   Runtime.postMessageJson port $ SbHasWindowId winId
   _ <- Runtime.onMessageJsonAddListener port onMsg
+  allTabs <- J.getHtmlElem =<< J.select "#tabs"
+  sortable <- S.create { onUpdate: sortableOnUpdate port } allTabs
   pure unit
   where
   onMsg :: BackgroundEvent -> Effect Unit

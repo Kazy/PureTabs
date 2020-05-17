@@ -1,4 +1,4 @@
-module Browser.Tabs (WindowId, TabId(..), Tab(..), query, remove, removeOne, update, activateTab) where
+module Browser.Tabs (WindowId, TabId(..), Tab(..), MoveProperties, query, remove, removeOne, update, activateTab, moveTab) where
 
 import Browser.Utils (unwrapForeign)
 import Control.Alt (map)
@@ -149,3 +149,10 @@ update props tabId = toAffE $ update' props tabId
 
 activateTab :: TabId -> Aff Tab
 activateTab tabId = update { active: true } tabId
+
+type MoveProperties = {
+  -- windowId :: Maybe WindowId
+  index :: Int
+}
+
+foreign import moveTab :: TabId -> MoveProperties -> Effect Unit

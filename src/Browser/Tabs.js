@@ -20,3 +20,11 @@ exports["update'"] = function () {
     }
   };
 };
+
+exports["moveTab"] = function (tabIds) {
+  return function (moveProperties) {
+    return function () {
+      return browser.tabs.move(tabIds, moveProperties);
+    };
+  };
+};

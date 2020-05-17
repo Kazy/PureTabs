@@ -16,3 +16,9 @@ exports.prepend = function(ob) {
     };
 };
 
+
+exports.getHtmlElem = function(ob) {
+  return function() {
+    return ob[0];
+  }
+}

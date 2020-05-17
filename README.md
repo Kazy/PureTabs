@@ -13,7 +13,7 @@ maintainable way. Any criticism is welcome.
 - [x] Support favicon
 - [x] Add delete button
 - [x] Tab selection
-- [ ] Moving a tab
+- [x] Moving a tab
 - [ ] Detaching a tab
 - [ ] Actually show tabs as a tree
 - [ ] Session save/import

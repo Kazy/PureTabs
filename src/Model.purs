@@ -22,7 +22,7 @@ module PureTabs.Model
   ) where
 
 import Browser.Runtime (Port)
-import Browser.Tabs (TabId, WindowId, Tab(..))
+import Browser.Tabs (TabId(..), WindowId, Tab(..))
 import Browser.Tabs.OnUpdated (ChangeInfo(..))
 import Control.Alternative (empty)
 import Control.Bind (join)
@@ -164,7 +164,7 @@ data SidebarEvent
   = SbTabDeleted TabId
   | SbTabActived TabId
   | SbTabCreated
-  | SbTabMoved
+  | SbTabMoved TabId Int
   | SbTabDetached
   | SbGroupCreated
   | SbGroupDeleted

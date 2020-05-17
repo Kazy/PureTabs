@@ -1,7 +1,7 @@
 module PureTabs.Background where
 
 import Browser.Runtime as Runtime
-import Browser.Tabs (Tab(..), TabId, WindowId, query, removeOne, activateTab)
+import Browser.Tabs (Tab(..), TabId, WindowId, query, removeOne, activateTab, moveTab)
 import Browser.Tabs.OnActivated as OnActivated
 import Browser.Tabs.OnCreated as OnCreated
 import Browser.Tabs.OnMoved as OnMoved
@@ -46,7 +46,7 @@ main = do
   runMain :: Aff Unit
   runMain = do
     allTabs <- query
-    liftEffect $ initializeBackground =<< (Ref.new $ tabsToGlobalState allTabs) 
+    liftEffect $ initializeBackground =<< (Ref.new $ tabsToGlobalState allTabs)
 
 initializeBackground :: Ref.Ref GlobalState -> Effect Unit
 initializeBackground ref = do
@@ -63,9 +63,9 @@ onTabCreated stateRef tab' = do
     Ref.modify
       ( set (_tabFromWindow tab') (Just tab')
           *> over (_positions >>> _windowIdToWindow tab.windowId)
-          -- TODO: throw an error here instead. Encapsulate the manipulations of
-          -- the position array to make sure we always perform valid operation
-          -- and otherwise throw an error or recover from it.
+              -- TODO: throw an error here instead. Encapsulate the manipulations of
+              -- the position array to make sure we always perform valid operation
+              -- and otherwise throw an error or recover from it.
               (\p -> maybe p identity (insertAt tab.index tab.id p))
       )
       stateRef
@@ -162,9 +162,10 @@ onTabDeleted stateRef tabId info = do
     deleteTabState t = set (_tabFromWindow t) Nothing
 
     deletePositionState :: Tab -> GlobalState -> GlobalState
-    deletePositionState (Tab t) = over 
-      (_positions >>> _windowIdToWindow t.windowId)
-      (\p -> maybe p identity (deleteAt t.index p))
+    deletePositionState (Tab t) =
+      over
+        (_positions >>> _windowIdToWindow t.windowId)
+        (\p -> maybe p identity (deleteAt t.index p))
 
     newState = foldr (\t -> deleteTabState t >>> deletePositionState t) state allTabs
   Ref.write newState stateRef
@@ -236,6 +237,8 @@ manageSidebar :: (Ref.Ref GlobalState) -> Runtime.Port -> SidebarEvent -> Effect
 manageSidebar stateRef port (SbTabDeleted tabId) = launchAff_ $ removeOne tabId
 
 manageSidebar stateRef port (SbTabActived tabId) = launchAff_ $ activateTab tabId
+
+manageSidebar stateRef port (SbTabMoved tabId newIndex) = moveTab tabId {index: newIndex}
 
 manageSidebar stateRef port msg = pure unit
 
