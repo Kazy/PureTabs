@@ -10,7 +10,7 @@ import Browser.Tabs.OnUpdated as OnUpdated
 import Browser.Utils (Listener, mkListenerOne, mkListenerTwo, mkListenerUnit)
 import Control.Alt ((<#>))
 import Control.Alternative (empty, pure, (*>))
-import Control.Bind ((>>=))
+import Control.Bind ((=<<), (>>=))
 import Control.Category (identity, (>>>))
 import Data.Array (catMaybes, deleteAt, foldl, fromFoldable, insertAt, mapWithIndex, (!!))
 import Data.Foldable (for_)
@@ -46,14 +46,7 @@ main = do
   runMain :: Aff Unit
   runMain = do
     allTabs <- query
-    traceM allTabs
-    liftEffect
-      $ do
-          state <- Ref.new $ tabsToGlobalState allTabs
-          readState <- Ref.read state
-          traceM readState
-          initializeBackground state
-          log "all listener initialized"
+    liftEffect $ initializeBackground =<< (Ref.new $ tabsToGlobalState allTabs) 
 
 initializeBackground :: Ref.Ref GlobalState -> Effect Unit
 initializeBackground ref = do
