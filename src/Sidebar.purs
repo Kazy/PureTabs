@@ -5,13 +5,8 @@ import Browser.Tabs (Tab(..), TabId(..), WindowId)
 import Browser.Tabs.OnUpdated (ChangeInfo(..))
 import Browser.Windows (getCurrent)
 import Control.Alternative (pure)
-import Control.Bind ((=<<), (>=>), (>>=))
-import Control.Category ((<<<))
-import Control.Monad (liftM1)
-import Data.CommutativeRing ((+))
-import Data.Eq ((==))
+import Control.Bind ((=<<), (>>=))
 import Data.Foldable (traverse_)
-import Data.Function (flip)
 import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid ((<>))
 import Data.Number (fromString)
@@ -27,9 +22,8 @@ import JQuery as J
 import JQuery.Ext (after, prepend, getHtmlElem) as J
 import Prelude (Unit, bind, ($), discard)
 import PureTabs.Model (BackgroundEvent(..), SidebarEvent(..))
-import Sortable (Sortable, create, Event) as S
+import Sortable (create, Event) as S
 import Web.DOM.Element (id)
-import Web.HTML (HTMLElement)
 import Web.HTML.HTMLElement (toElement)
 
 main :: Effect Unit
@@ -46,9 +40,10 @@ main = do
 sortableOnUpdate :: Runtime.Port -> S.Event -> Effect Unit
 sortableOnUpdate port { item: item, newIndex: Just newIndex } = do
   sTabId <- id $ toElement item
-  case fromString sTabId of 
-       Nothing -> throw $ "couldn't convert to a tab id " <> sTabId
-       Just tabId' -> Runtime.postMessageJson port $ SbTabMoved (TabId tabId') newIndex
+  case fromString sTabId of
+    Nothing -> throw $ "couldn't convert to a tab id " <> sTabId
+    Just tabId' -> Runtime.postMessageJson port $ SbTabMoved (TabId tabId') newIndex
+
 sortableOnUpdate port _ = pure unit
 
 initSidebar :: Runtime.Port -> WindowId -> Effect Unit
@@ -137,13 +132,16 @@ deleteTabElement tabId = do
 
 updateTabInfo :: TabId -> ChangeInfo -> Tab -> Effect Unit
 updateTabInfo tid (ChangeInfo cinfo) (Tab tab) = do
-  tabTitleDiv <- J.select ("#" <> (show tid) <> " > .tab-title")
+  let
+    tabIdSelec = "#" <> (show tid)
+  tabDiv <- J.select tabIdSelec
+  tabTitleDiv <- J.select (tabIdSelec <> " > .tab-title")
   let
     newTitle = case cinfo.status of
       Just "loading" -> Just "Loading ..."
       _ -> Just tab.title
   maybe (pure unit) (\t -> J.setText t tabTitleDiv) newTitle
-  maybe (pure unit) (\discarded -> J.setClass "discarded" discarded tabTitleDiv) tab.discarded
+  maybe (pure unit) (\discarded -> J.setClass "discarded" discarded tabDiv) tab.discarded
   tabFaviconDiv <- J.select ("#" <> (show tid) <> " > .tab-favicon")
   setFaviconUrl cinfo.favIconUrl tabFaviconDiv
 
