@@ -20,7 +20,6 @@ import Effect (Effect)
 import Effect.Exception (throw)
 import Foreign (F, Foreign, ForeignError(..), fail, isNull, isUndefined, readInt, readNull, readNullOrUndefined, readNumber, renderForeignError, tagOf, unsafeFromForeign)
 import Foreign.Index ((!))
-import Heterogeneous.Mapping (class MappingWithIndex)
 import Prelude (bind)
 import Prim.Row (class Union, class Cons) as Row
 import Web.HTML (HTMLElement)
