@@ -1,17 +1,15 @@
-module Browser.Tabs (WindowId, TabId(..), Tab(..), MoveProperties, query, remove, removeOne, update, activateTab, moveTab) where
+module Browser.Tabs (WindowId, TabId(..), Tab(..), MoveProperties, CreateProperties, query, remove, removeOne, update, activateTab, moveTab, createTab) where
 
 import Browser.Utils (unwrapForeign)
 import Control.Alt (map)
-import Control.Bind ((>>=))
 import Control.Promise (Promise, toAffE)
-import Data.Argonaut (class DecodeJson, class EncodeJson)
 import Data.Eq (class Eq)
 import Data.Function (($))
 import Data.Generic.Rep (class Generic)
 import Data.Generic.Rep.Show (genericShow)
-import Data.List (List, fromFoldable, toUnfoldable, (!!), singleton)
+import Data.List (List, fromFoldable, toUnfoldable, singleton)
 import Data.Maybe (Maybe)
-import Data.Newtype (class Newtype, unwrap)
+import Data.Newtype (class Newtype)
 import Data.Number.Format (toString)
 import Data.Ord (class Ord)
 import Data.Show (class Show)
@@ -156,3 +154,19 @@ type MoveProperties = {
 }
 
 foreign import moveTab :: TabId -> MoveProperties -> Effect Unit
+
+
+type CreateProperties = (
+  active :: Boolean,
+  cookieStoreId :: String,
+  discarded :: Boolean,
+  index :: Int,
+  openerTabId :: TabId,
+  openInReaderMode :: Boolean,
+  pinned :: Boolean,
+  title :: String,
+  url :: String,
+  windowId :: WindowId
+)
+
+foreign import createTab :: forall props trash. Union props trash CreateProperties => { | props } -> Effect Unit

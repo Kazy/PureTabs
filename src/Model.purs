@@ -161,14 +161,14 @@ instance showBackgroundEvent :: Show BackgroundEvent where
   show = genericShow
 
 data SidebarEvent
-  = SbTabDeleted TabId
-  | SbTabActived TabId
-  | SbTabCreated
-  | SbTabMoved TabId Int
-  | SbTabDetached
-  | SbGroupCreated
-  | SbGroupDeleted
-  | SbGroupRenamed
+  = SbDeleteTab TabId
+  | SbActivateTab TabId
+  | SbCreateTab WindowId
+  | SbMoveTab TabId Int
+  | SbDetacheTab
+  | SbCreatedGroup
+  | SbDeleteGroup
+  | SbRenameGroup
   | SbHasWindowId WindowId
 
 derive instance genSidebarEvent :: Generic SidebarEvent _

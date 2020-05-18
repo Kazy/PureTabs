@@ -18,6 +18,7 @@ import Effect.Aff (Aff, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
 import Effect.Exception (throw)
+import JQuery (getAttr, getTarget)
 import JQuery as J
 import JQuery.Ext (after, prepend, getHtmlElem) as J
 import Prelude (Unit, bind, ($), discard)
@@ -42,7 +43,7 @@ sortableOnUpdate port { item: item, newIndex: Just newIndex } = do
   sTabId <- id $ toElement item
   case fromString sTabId of
     Nothing -> throw $ "couldn't convert to a tab id " <> sTabId
-    Just tabId' -> Runtime.postMessageJson port $ SbTabMoved (TabId tabId') newIndex
+    Just tabId' -> Runtime.postMessageJson port $ SbMoveTab (TabId tabId') newIndex
 
 sortableOnUpdate port _ = pure unit
 
@@ -51,8 +52,9 @@ initSidebar port winId = do
   log $ "windowId " <> (show winId)
   Runtime.postMessageJson port $ SbHasWindowId winId
   _ <- Runtime.onMessageJsonAddListener port onMsg
-  allTabs <- J.getHtmlElem =<< J.select "#tabs"
-  sortable <- S.create { onUpdate: sortableOnUpdate port } allTabs
+  allTabs <- J.select "#tabs"
+  J.on "dblclick" (openNewTab winId port) allTabs
+  sortable <- S.create { onUpdate: sortableOnUpdate port } =<< J.getHtmlElem allTabs
   pure unit
   where
   onMsg :: BackgroundEvent -> Effect Unit
@@ -64,6 +66,13 @@ initSidebar port winId = do
     BgTabActived prev new -> activateTab prev new
     BgTabMoved tid prevPos newPos -> moveTab tid prevPos newPos
     _ -> log "received unsupported message type"
+
+  openNewTab :: WindowId -> Runtime.Port -> J.JQueryEvent -> J.JQuery -> Effect Unit
+  openNewTab winId port' event _ = do
+    id <- getAttr "id" =<< getTarget event
+    case id of
+      Just "tabs" -> Runtime.postMessageJson port' $ SbCreateTab winId
+      _ -> pure unit
 
 createTab :: Runtime.Port -> Tab -> Effect Unit
 createTab port (Tab tab) = do
@@ -96,10 +105,10 @@ createTabElement port (Tab tab) = do
   pure tabDiv
   where
   onCloseClick :: J.JQueryEvent -> J.JQuery -> Effect Unit
-  onCloseClick event j = Runtime.postMessageJson port $ SbTabDeleted tab.id
+  onCloseClick event j = Runtime.postMessageJson port $ SbDeleteTab tab.id
 
   onTabClick :: J.JQueryEvent -> J.JQuery -> Effect Unit
-  onTabClick event j = Runtime.postMessageJson port $ SbTabActived tab.id
+  onTabClick event j = Runtime.postMessageJson port $ SbActivateTab tab.id
 
   isDiscarded :: forall r. { discarded :: Maybe Boolean | r } -> Boolean
   isDiscarded { discarded: Just true } = true

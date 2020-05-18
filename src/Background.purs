@@ -1,7 +1,7 @@
 module PureTabs.Background where
 
 import Browser.Runtime as Runtime
-import Browser.Tabs (Tab(..), TabId, WindowId, query, removeOne, activateTab, moveTab)
+import Browser.Tabs (Tab(..), TabId, WindowId, query, removeOne, activateTab, moveTab, createTab)
 import Browser.Tabs.OnActivated as OnActivated
 import Browser.Tabs.OnCreated as OnCreated
 import Browser.Tabs.OnMoved as OnMoved
@@ -234,11 +234,13 @@ initWindowState port ref winId =
 -- TODO don't pass the full ref, but only a set of function to manipulate/access 
 -- the data required
 manageSidebar :: (Ref.Ref GlobalState) -> Runtime.Port -> SidebarEvent -> Effect Unit
-manageSidebar stateRef port (SbTabDeleted tabId) = launchAff_ $ removeOne tabId
+manageSidebar stateRef port (SbDeleteTab tabId) = launchAff_ $ removeOne tabId
 
-manageSidebar stateRef port (SbTabActived tabId) = launchAff_ $ activateTab tabId
+manageSidebar stateRef port (SbActivateTab tabId) = launchAff_ $ activateTab tabId
 
-manageSidebar stateRef port (SbTabMoved tabId newIndex) = moveTab tabId {index: newIndex}
+manageSidebar stateRef port (SbMoveTab tabId newIndex) = moveTab tabId {index: newIndex}
+
+manageSidebar stateRef port (SbCreateTab winId) = createTab {windowId: winId}
 
 manageSidebar stateRef port msg = pure unit
 
