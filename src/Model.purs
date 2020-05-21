@@ -1,5 +1,5 @@
 module PureTabs.Model
-  ( Window
+  ( ExtWindow
   , GlobalState
   , _active
   , _id
@@ -14,7 +14,9 @@ module PureTabs.Model
   , _tabs
   , _tabWindowId
   , _windowIdToWindow
+  , _windowIdToTabIdToTab
   , _windows
+  , emptyWindow
   , initialGlobalState
   , tabsToGlobalState
   , BackgroundEvent(..)
@@ -27,7 +29,8 @@ import Browser.Tabs.OnUpdated (ChangeInfo(..))
 import Control.Alternative (empty)
 import Control.Bind (join)
 import Control.Category ((>>>), (<<<))
-import Data.Array (sortBy)
+import Control.Plus (empty) as A
+import Data.Array (sortBy, singleton) as A
 import Data.Function (on, ($))
 import Data.Functor (map)
 import Data.Generic.Rep (class Generic)
@@ -46,14 +49,24 @@ import Data.Tuple (Tuple(..), fst, snd, uncurry)
 import Data.Tuple.Nested ((/\))
 
 type GlobalState
-  = { windows :: M.Map WindowId Window
+  = { windows :: M.Map WindowId ExtWindow
+    , detached :: Maybe Tab
     }
 
-type Window
+initialGlobalState :: GlobalState
+initialGlobalState =
+  { windows: M.empty
+  , detached: Nothing
+  }
+
+type ExtWindow
   = { positions :: Array TabId
     , tabs :: M.Map TabId Tab
     , port :: Maybe Port
     }
+
+emptyWindow :: ExtWindow
+emptyWindow = { positions: A.empty, tabs: M.empty, port: Nothing }
 
 _tabs :: forall a r. Lens' { tabs :: a | r } a
 _tabs = prop (SProxy :: _ "tabs")
@@ -97,11 +110,14 @@ _portFromWindow (Tab tab) = _portFromWindowId tab.windowId
 _portFromWindowId :: WindowId -> Traversal' GlobalState Port
 _portFromWindowId wid = _windowIdToWindow wid <<< _port <<< _Just
 
-_windowIdToWindow :: WindowId -> Traversal' GlobalState Window
+_windowIdToWindow :: WindowId -> Traversal' GlobalState ExtWindow
 _windowIdToWindow wid = _windows <<< (at wid) <<< _Just
 
 _tabFromWindow :: Tab -> Traversal' GlobalState (Maybe Tab)
 _tabFromWindow (Tab tab) = _windowIdToWindow tab.windowId <<< _tabs <<< (at tab.id)
+
+_windowIdToTabIdToTab :: WindowId -> TabId -> Traversal' GlobalState (Maybe Tab)
+_windowIdToTabIdToTab wid tid = _windowIdToWindow wid <<< _tabs <<< (at tid)
 
 _tabFromTabIdAndWindow :: GlobalState -> TabId -> Maybe Tab
 _tabFromTabIdAndWindow s tabId =
@@ -114,18 +130,13 @@ _tabFromTabIdAndWindow s tabId =
   in
     join $ head matchingTabId
 
-initialGlobalState :: GlobalState
-initialGlobalState =
-  { windows: M.empty
-  }
-
 tabsToGlobalState :: List Tab -> GlobalState
-tabsToGlobalState tabs = { windows: tabsToWindows tabs }
+tabsToGlobalState tabs = { windows: tabsToWindows tabs, detached: Nothing }
   where
-  tabsToWindows :: List Tab -> M.Map WindowId Window
+  tabsToWindows :: List Tab -> M.Map WindowId ExtWindow
   tabsToWindows tabs' = M.fromFoldableWith merge $ map mapTab tabs'
 
-  merge :: Window -> Window -> Window
+  merge :: ExtWindow -> ExtWindow -> ExtWindow
   merge w1 w2 =
     let
       mergedMap = M.union w1.tabs w2.tabs
@@ -133,11 +144,11 @@ tabsToGlobalState tabs = { windows: tabsToWindows tabs }
       { tabs: mergedMap
       , port: Nothing
       -- TODO do that after building the state, to avoid going creating a new list each time
-      , positions: (mapPositions >>> (sortBy (compare `on` snd)) >>> (map fst)) mergedMap
+      , positions: (mapPositions >>> (A.sortBy (compare `on` snd)) >>> (map fst)) mergedMap
       }
 
-  mapTab :: Tab -> Tuple WindowId Window
-  mapTab (Tab t) = Tuple t.windowId { tabs: M.singleton t.id (Tab t), port: Nothing, positions: empty }
+  mapTab :: Tab -> Tuple WindowId ExtWindow
+  mapTab (Tab t) = Tuple t.windowId { tabs: M.singleton t.id (Tab t), port: Nothing, positions: A.singleton t.id }
 
   mapPositions :: M.Map TabId Tab -> Array (Tuple TabId Int)
   mapPositions = M.toUnfoldableUnordered >>> (map \(Tuple tid (Tab t)) -> tid /\ t.index)
