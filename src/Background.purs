@@ -177,7 +177,7 @@ onTabActived stateRef (OnActivated.ActiveInfo aInfo) = do
   state <- Ref.modify (updateGlobalState aInfo.previousTabId aInfo.tabId) stateRef
   case (preview (_portFromWindowId aInfo.windowId) state) of
     Nothing -> pure unit
-    Just port -> Runtime.postMessageJson port $ BgTabActived aInfo.previousTabId aInfo.tabId
+    Just port -> Runtime.postMessageJson port $ BgTabActivated aInfo.previousTabId aInfo.tabId
   where
   updateGlobalState :: (Maybe TabId) -> TabId -> GlobalState -> GlobalState
   updateGlobalState prev new state =

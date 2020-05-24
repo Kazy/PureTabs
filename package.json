@@ -16,8 +16,5 @@
   "devDependencies": {
     "concurrently": "^5.2.0",
     "parcel": "^1.12.4"
-  },
-  "dependencies": {
-    "sortablejs": "^1.10.2"
   }
 }

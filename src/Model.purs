@@ -159,7 +159,7 @@ data BackgroundEvent
   | BgTabDeleted TabId
   | BgTabUpdated TabId ChangeInfo Tab
   | BgTabMoved TabId Int Int
-  | BgTabActived (Maybe TabId) TabId
+  | BgTabActivated (Maybe TabId) TabId
   | BgTabAttached Tab
   | BgTabDetached TabId
   | BgTabHighlighted

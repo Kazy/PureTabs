@@ -16,20 +16,22 @@ import Foreign.Class (class Decode, class Encode)
 import Foreign.Generic (defaultOptions, genericDecode, genericEncode)
 import Prelude (Unit, bind, ($))
 
+type ChangeInfoRec
+  = { attention :: Maybe Boolean
+    , audible :: Maybe Boolean
+    , discarded :: Maybe Boolean
+    , favIconUrl :: Maybe String
+    , hidden :: Maybe Boolean
+    , isArticle :: Maybe Boolean
+    -- mutedInfo :: Maybe MutedInfo,
+    , pinned :: Maybe Boolean
+    , status :: Maybe String
+    , title :: Maybe String
+    , url :: Maybe String
+    }
+
 newtype ChangeInfo
-  = ChangeInfo
-  { attention :: Maybe Boolean
-  , audible :: Maybe Boolean
-  , discarded :: Maybe Boolean
-  , favIconUrl :: Maybe String
-  , hidden :: Maybe Boolean
-  , isArticle :: Maybe Boolean
-  -- mutedInfo :: Maybe MutedInfo,
-  , pinned :: Maybe Boolean
-  , status :: Maybe String
-  , title :: Maybe String
-  , url :: Maybe String
-  }
+  = ChangeInfo ChangeInfoRec
 
 derive instance newtypeChangeInfo :: Newtype ChangeInfo _
 
