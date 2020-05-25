@@ -1,24 +1,22 @@
 module PureTabs.Sidebar.Tabs (component, Query(..)) where
 
-import Browser.Tabs (Tab(..), TabId(..))
+import Browser.Tabs (Tab(..), TabId)
 import Browser.Tabs.OnUpdated (ChangeInfo(..), ChangeInfoRec)
 import CSS.Background as CssBackground
-import Control.Alt ((<#>), (<$>), (<|>))
-import Control.Alternative (empty, pure, (*>), (<*>))
+import Control.Alt ((<$>))
+import Control.Alternative (empty, pure, (*>))
 import Control.Bind (bind, discard, (>=>), (>>=))
 import Control.Category (identity, (<<<), (>>>))
-import Data.Array (catMaybes, deleteAt, filter, findIndex, head, insertAt, modifyAt, (!!)) as A
-import Data.Array (foldl)
-import Data.Const (Const(..))
-import Data.Eq ((==))
-import Data.Function (const, flip, (#), ($))
+import Data.Array (mapWithIndex, catMaybes, deleteAt, filter, findIndex, head, insertAt, modifyAt, (!!)) as A
+import Data.Eq ((/=), (==))
+import Data.Function (flip, ($))
 import Data.Lens (over)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
+import Data.MediaType.Common (textPlain)
+import Data.Monoid ((<>))
 import Data.Show (show)
 import Data.Symbol (SProxy(..))
 import Data.Unit (Unit, unit)
-import Data.Void (Void)
-import Effect.Aff.Class (class MonadAff)
 import Effect.Class (class MonadEffect)
 import Effect.Class.Console (log)
 import Halogen as H
@@ -26,11 +24,11 @@ import Halogen.HTML as HH
 import Halogen.HTML.CSS as CSS
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
-import PureTabs.Model (BackgroundEvent(..), SidebarEvent(..))
-import PureTabs.Model (_tabs)
-import PureTabs.Sidebar.Tab as TabC
+import PureTabs.Model (SidebarEvent(..), _tabs)
 import Web.Event.Event (Event)
 import Web.Event.Event as Event
+import Web.HTML.Event.DataTransfer as DT
+import Web.HTML.Event.DragEvent as DE
 import Web.UIEvent.MouseEvent (toEvent) as ME
 
 data Query a
@@ -44,9 +42,20 @@ data Query a
 data Action
   = UserClosedTab TabId Event
   | UserActivatedTab TabId Event
+  | UserOpenedTab Event
+  | TabDragStart DE.DragEvent Tab Int
+  | TabDragOver DE.DragEvent Int
+  | TabDragEnd DE.DragEvent
+
+type DraggedTab
+  = { tab :: Tab
+    , originalIndex :: Int
+    , overIndex :: Int
+    }
 
 type State
   = { tabs :: Array Tab
+    , selectedElem :: Maybe DraggedTab
     }
 
 component :: forall i m. MonadEffect m => H.Component HH.HTML Query i SidebarEvent m
@@ -63,21 +72,33 @@ component =
     }
 
 initialState :: forall i. i -> State
-initialState _ = { tabs: empty }
+initialState _ = { tabs: empty, selectedElem: Nothing }
 
 _tab :: SProxy "tab"
 _tab = SProxy
 
 render :: forall m. State -> H.ComponentHTML Action () m
 render state =
-  HH.div
-    [ HP.id_ "tabs"
-    ]
-    (renderTab <$> state.tabs)
+  let
+    tabsWithIndex = state.tabs
+
+    tabs =
+      fromMaybe tabsWithIndex
+        $ state.selectedElem
+        >>= ( \{ originalIndex, overIndex } -> moveElem originalIndex overIndex tabsWithIndex
+          )
+  in
+    HH.div
+      [ HP.id_ "tabs", HE.onDoubleClick (\ev -> Just (UserOpenedTab $ ME.toEvent ev)) ]
+      (A.mapWithIndex renderTab tabs)
   where
-  renderTab (Tab t) =
+  renderTab index (Tab t) =
     HH.div
       [ HP.id_ $ show t.id
+      , HP.draggable true
+      , HE.onDragStart \evt -> Just $ TabDragStart evt (Tab t) index
+      , HE.onDragEnd \evt -> Just $ TabDragEnd evt
+      , HE.onDragOver \evt -> Just $ TabDragOver evt index
       , HE.onClick (\ev -> Just (UserActivatedTab t.id (ME.toEvent ev)))
       , HP.classes $ H.ClassName
           <$> A.catMaybes
@@ -118,21 +139,57 @@ render state =
 handleAction :: forall m. MonadEffect m => Action -> H.HalogenM State Action () SidebarEvent m Unit
 handleAction = case _ of
   UserClosedTab tid ev -> do
-    H.liftEffect $ do 
-        Event.preventDefault ev 
-        Event.stopPropagation ev
-    H.liftEffect $ log "sb: closed a tab"
+    H.liftEffect
+      $ do
+          Event.preventDefault ev
+          Event.stopPropagation ev
+          log "sb: closed a tab"
     H.raise $ SbDeleteTab tid
   UserActivatedTab tid ev -> do
-    H.liftEffect $ do 
-        Event.preventDefault ev 
-        Event.stopPropagation ev
-    H.liftEffect $ log "sb: activated a tab"
+    H.liftEffect
+      $ do
+          Event.preventDefault ev
+          Event.stopPropagation ev
+          log "sb: activated a tab"
     H.raise $ SbActivateTab tid
+  UserOpenedTab ev -> do
+    H.liftEffect
+      $ do
+          Event.preventDefault ev
+          Event.stopPropagation ev
+          log "sb: created a tab"
+    H.raise SbCreateTab
+  TabDragStart dragEvent tab index -> do
+    let
+      dataTransfer = DE.dataTransfer dragEvent
+    H.liftEffect
+      $ do
+          DT.setData textPlain "" dataTransfer
+          DT.setDropEffect DT.Move dataTransfer
+    H.modify_ \s -> s { selectedElem = Just { tab: tab, originalIndex: index, overIndex: index } }
+    H.liftEffect $ log $ "sb: drag start from " <> (show index)
+  TabDragOver event index -> do
+    -- prevent the ghost from flying back to its (wrong) place
+    -- see https://stackoverflow.com/questions/42725321/prevent-html5-drag-ghost-image-flying-back
+    H.liftEffect $ Event.preventDefault (DE.toEvent event)
+    state <- H.get
+    case state.selectedElem of
+      Just selectedRec@{ originalIndex, overIndex }
+        | overIndex /= index -> do
+          H.modify_ (\s -> s { selectedElem = Just $ selectedRec { overIndex = index } })
+          H.liftEffect $ log $ "sb: drag over from " <> (show overIndex) <> " to " <> (show index)
+      _ -> pure unit
+  TabDragEnd event -> do
+    state <- H.get
+    case state.selectedElem of
+      Nothing -> pure unit
+      Just { tab: (Tab t), originalIndex, overIndex } -> do
+        H.liftEffect $ log $ "sb: drag end from " <> (show originalIndex) <> " to " <> (show overIndex)
+        H.raise (SbMoveTab t.id overIndex)
 
 handleQuery :: forall act o m a. Query a -> H.HalogenM State act () o m (Maybe a)
 handleQuery = case _ of
-  InitialTabList tabs a -> H.put { tabs } *> pure (Just a)
+  InitialTabList tabs a -> H.modify_ (\s -> s { tabs = tabs }) *> pure (Just a)
   TabCreated (Tab t) a ->
     H.modify_
       (over _tabs $ \tabs -> fromMaybe tabs $ A.insertAt t.index (Tab t) tabs)
@@ -141,7 +198,6 @@ handleQuery = case _ of
     H.modify_
       ( over _tabs
           $ applyAtTabId tid A.deleteAt
-      {-- $ \tabs -> fromMaybe tabs $ findIndexTabId tid tabs >>= (flip A.deleteAt) tabs --}
       )
       *> pure (Just a)
   TabActivated oldTid tid a ->
@@ -155,11 +211,16 @@ handleQuery = case _ of
     state <- H.get
     let
       tab' = state.tabs A.!! prev
-    maybeFlipped tab' (pure unit) \tab ->
+    maybeFlipped tab' (pure unit) \tab -> do
       H.modify_
         ( over _tabs \tabs ->
             fromMaybe tabs $ (A.deleteAt prev >=> A.insertAt next tab) tabs
         )
+      -- Wait for a move to disable the drag data, otherwise the tab will come
+      -- back briefly to its original place before switching again.
+      -- This also means that if the move fail, this will be in an inconsistant
+      -- state.
+      H.modify_ \s -> s { selectedElem = Nothing }
     pure (Just a)
   TabInfoChanged tid cinfo a ->
     H.modify_
@@ -206,3 +267,8 @@ updateTabFromInfo (ChangeInfo cinfo) (Tab t) =
         >>> updateField { acc: _.favIconUrl, update: (\val -> _ { favIconUrl = Just val }) }
   in
     Tab (applyChange t)
+
+moveElem :: forall a. Int -> Int -> Array a -> Maybe (Array a)
+moveElem from to arr = do
+  elem <- arr A.!! from
+  (A.deleteAt from >=> A.insertAt to elem) arr

@@ -282,7 +282,7 @@ onNewWindowId port stateRef listenerRef winId = do
     )
     (M.lookup winId latestState.windows)
   --  add the new onMessage listener
-  sidebarListener <- Runtime.onMessageJsonAddListener port $ manageSidebar stateRef port
+  sidebarListener <- Runtime.onMessageJsonAddListener port $ manageSidebar stateRef winId port
   onDisconnectListener <- mkListenerUnit $ onDisconnect stateRef winId sidebarListener
   Runtime.portOnDisconnect port onDisconnectListener
 
@@ -298,16 +298,13 @@ initWindowState port ref winId =
 
 -- TODO don't pass the full ref, but only a set of function to manipulate/access 
 -- the data required
-manageSidebar :: (Ref.Ref GlobalState) -> Runtime.Port -> SidebarEvent -> Effect Unit
-manageSidebar stateRef port (SbDeleteTab tabId) = launchAff_ $ removeOne tabId
-
-manageSidebar stateRef port (SbActivateTab tabId) = launchAff_ $ activateTab tabId
-
-manageSidebar stateRef port (SbMoveTab tabId newIndex) = moveTab tabId { index: newIndex }
-
-manageSidebar stateRef port (SbCreateTab winId) = createTab { windowId: winId }
-
-manageSidebar stateRef port msg = pure unit
+manageSidebar :: (Ref.Ref GlobalState) -> WindowId -> Runtime.Port -> SidebarEvent -> Effect Unit
+manageSidebar _ winId port = case _ of 
+  SbDeleteTab tabId -> launchAff_ $ removeOne tabId
+  SbActivateTab tabId -> launchAff_ $ activateTab tabId
+  SbMoveTab tabId newIndex -> moveTab tabId { index: newIndex }
+  SbCreateTab -> createTab { windowId: winId }
+  _ -> pure unit
 
 onDisconnect :: forall a. (Ref.Ref GlobalState) -> WindowId -> Listener a -> Effect Unit
 onDisconnect stateRef winId listener = Ref.modify_ (set (_windows <<< (at winId) <<< _Just <<< _port) Nothing) stateRef

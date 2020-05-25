@@ -10,6 +10,7 @@ module Browser.Utils
   , mkListenerTwo
   , mkListenerThree
   , unwrapForeign
+  , unsafeLog
   ) where
 
 import Control.Alt (map)
@@ -56,3 +57,5 @@ unwrapForeign d = case runExcept
     $ genericDecode (defaultOptions { unwrapSingleConstructors = true }) d of
   Left err -> throw $ intercalate ", " (map renderForeignError err)
   Right val -> pure val
+
+foreign import unsafeLog :: forall a. a

@@ -32,3 +32,9 @@ exports.mkListenerThree = function (fn) {
     }
   }
 };
+
+exports.unsafeLog = function (data) {
+  console.log(">> this is unsafe:");
+  console.log(data);
+  return data;
+};
