@@ -17,7 +17,8 @@ import Control.Alt (map, (<#>), (<$>), (<|>))
 import Control.Alternative (empty, pure, (*>))
 import Control.Bind ((=<<), (>>=))
 import Control.Category (identity, (>>>))
-import Data.Array (catMaybes, deleteAt, filter, foldl, fromFoldable, insertAt, mapWithIndex, (!!))
+import Data.Array as A
+import Data.CommutativeRing ((+))
 import Data.Eq ((/=), (==))
 import Data.Foldable (for_)
 import Data.Function (const, flip, (#))
@@ -101,7 +102,7 @@ onTabCreated stateRef (Tab tab) = do
     updateWindow win =
       -- this will delete the window if there is an issue with the position..
       -- not the best solution but we can't really recover from it anyway.
-      (insertAt t.index t.id win.positions)
+      (A.insertAt t.index t.id win.positions)
         <#> \newPos ->
             win
               { positions = newPos
@@ -120,7 +121,8 @@ onTabUpdated stateRef tid cinfo tab' = do
   updateTab (Tab t) =
     -- update by replacing the tab only if it already exists
     (over (_tabFromWindow (Tab t)) (map $ const (Tab t)))
-    -- or update the currently detached tab
+      -- or update the currently detached tab
+      
       >>> ( \s -> case s.detached of
             Just (Tab t')
               | t.id == t'.id -> s { detached = Just (Tab t') }
@@ -158,18 +160,17 @@ onTabMoved ref tid minfo = do
 
   moveElement :: forall a. Int -> Int -> Array a -> Maybe (Array a)
   moveElement from to arr = do
-    tab <- arr !! from
-    deleteAt from arr >>= insertAt to tab
+    tab <- arr A.!! from
+    A.deleteAt from arr >>= A.insertAt to tab
 
   -- | update the index of the tab given the positions
   updateTabsIndex :: Array TabId -> M.Map TabId Tab -> M.Map TabId Tab
   updateTabsIndex positions tabs =
     let
       modifyFuncs :: Array (M.Map TabId Tab -> M.Map TabId Tab)
-      modifyFuncs = mapWithIndex (\idx tid' -> set (at tid' <<< _Just <<< _Newtype <<< _index) idx) positions
+      modifyFuncs = A.mapWithIndex (\idx tid' -> set (at tid' <<< _Just <<< _Newtype <<< _index) idx) positions
     in
-      foldl (#) tabs modifyFuncs
-
+      A.foldl (#) tabs modifyFuncs
 
 onTabActived :: (Ref.Ref GlobalState) -> OnActivated.ActiveInfo -> Effect Unit
 onTabActived stateRef (OnActivated.ActiveInfo aInfo) = do
@@ -201,7 +202,7 @@ onTabActived stateRef (OnActivated.ActiveInfo aInfo) = do
 stateDeleteTab :: WindowId -> TabId -> GlobalState -> GlobalState
 stateDeleteTab wid tid =
   ( (set (_windowIdToTabIdToTab wid tid) Nothing)
-      >>> over (_windowIdToWindow wid <<< _positions) (filter ((/=) tid))
+      >>> over (_windowIdToWindow wid <<< _positions) (A.filter ((/=) tid))
   )
 
 deleteTab :: (Ref.Ref GlobalState) -> WindowId -> TabId -> Effect Unit
@@ -275,10 +276,10 @@ onNewWindowId port stateRef listenerRef winId = do
     ( \w -> do
         Runtime.postMessageJson port
           $ BgInitialTabList
-          $ fromFoldable
+          $ A.fromFoldable
           $ w.positions
           <#> (flip M.lookup w.tabs)
-          # catMaybes
+          # A.catMaybes
     )
     (M.lookup winId latestState.windows)
   --  add the new onMessage listener
@@ -299,11 +300,17 @@ initWindowState port ref winId =
 -- TODO don't pass the full ref, but only a set of function to manipulate/access 
 -- the data required
 manageSidebar :: (Ref.Ref GlobalState) -> WindowId -> Runtime.Port -> SidebarEvent -> Effect Unit
-manageSidebar _ winId port = case _ of 
+manageSidebar ref winId port = case _ of
   SbDeleteTab tabId -> launchAff_ $ removeOne tabId
   SbActivateTab tabId -> launchAff_ $ activateTab tabId
   SbMoveTab tabId newIndex -> moveTab tabId { index: newIndex }
-  SbCreateTab -> createTab { windowId: winId }
+  SbCreateTab tid' -> case tid' of
+    Nothing -> createTab { windowId: winId }
+    Just tid ->
+      Ref.read ref <#> view (_positions >>> _windowIdToWindow winId)
+        >>= \positions -> case A.elemIndex tid positions of
+            Nothing -> createTab { windowId: winId }
+            Just idx -> createTab { windowId: winId, index: idx + 1 }
   _ -> pure unit
 
 onDisconnect :: forall a. (Ref.Ref GlobalState) -> WindowId -> Listener a -> Effect Unit

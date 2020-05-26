@@ -174,7 +174,7 @@ instance showBackgroundEvent :: Show BackgroundEvent where
 data SidebarEvent
   = SbDeleteTab TabId
   | SbActivateTab TabId
-  | SbCreateTab
+  | SbCreateTab (Maybe TabId)
   | SbMoveTab TabId Int
   | SbDetacheTab
   | SbCreatedGroup

@@ -42,7 +42,7 @@ data Query a
 data Action
   = UserClosedTab TabId Event
   | UserActivatedTab TabId Event
-  | UserOpenedTab Event
+  | UserOpenedTab (Maybe TabId) Event
   -- drags
   | TabDragStart DE.DragEvent Tab Int
   | TabDragOver DE.DragEvent Int
@@ -95,7 +95,7 @@ render state =
   in
     HH.div
       [ HP.id_ "tabs"
-      , HE.onDoubleClick (\ev -> Just (UserOpenedTab $ ME.toEvent ev))
+      , HE.onDoubleClick (\ev -> Just (UserOpenedTab Nothing (ME.toEvent ev)))
       ]
       (A.mapWithIndex renderTab tabs)
   where
@@ -112,6 +112,7 @@ render state =
       , HE.onMouseLeave \evt -> Just $ TabMouseLeave evt index
       -- click event
       , HE.onClick (\ev -> Just (UserActivatedTab t.id (ME.toEvent ev)))
+      , HE.onDoubleClick (\ev -> Just (UserOpenedTab (Just t.id) (ME.toEvent ev)))
       -- TODO: on double click on a tab, open a tab right below
       -- clases
       , HP.classes $ H.ClassName
@@ -171,13 +172,13 @@ handleAction = case _ of
           Event.stopPropagation ev
           log "sb: activated a tab"
     H.raise $ SbActivateTab tid
-  UserOpenedTab ev -> do
+  UserOpenedTab tid ev -> do
     H.liftEffect
       $ do
           Event.preventDefault ev
           Event.stopPropagation ev
           log "sb: created a tab"
-    H.raise SbCreateTab
+    H.raise $ SbCreateTab tid
   -- Drag actions
   TabDragStart dragEvent tab index -> do
     let
