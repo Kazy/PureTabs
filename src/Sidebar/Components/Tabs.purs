@@ -106,6 +106,7 @@ render state =
               , if t.active then Just "active" else Nothing
               , if isDiscarded t then Just "discarded" else Nothing
               ]
+      , HP.title t.title
       ]
       [ HH.div [ HP.class_ $ H.ClassName "tab-favicon", faviconStyle t.favIconUrl ] []
       , HH.div [ HP.class_ $ H.ClassName "tab-title" ]
