@@ -29,7 +29,7 @@ import Web.Event.Event (Event)
 import Web.Event.Event as Event
 import Web.HTML.Event.DataTransfer as DT
 import Web.HTML.Event.DragEvent as DE
-import Web.UIEvent.MouseEvent (toEvent) as ME
+import Web.UIEvent.MouseEvent as ME
 
 data Query a
   = InitialTabList (Array Tab) a
@@ -43,9 +43,13 @@ data Action
   = UserClosedTab TabId Event
   | UserActivatedTab TabId Event
   | UserOpenedTab Event
+  -- drags
   | TabDragStart DE.DragEvent Tab Int
   | TabDragOver DE.DragEvent Int
   | TabDragEnd DE.DragEvent
+  -- mouse event
+  | TabMouseEnter ME.MouseEvent Int
+  | TabMouseLeave ME.MouseEvent Int
 
 type DraggedTab
   = { tab :: Tab
@@ -56,6 +60,7 @@ type DraggedTab
 type State
   = { tabs :: Array Tab
     , selectedElem :: Maybe DraggedTab
+    , tabHovered :: Maybe Int
     }
 
 component :: forall i m. MonadEffect m => H.Component HH.HTML Query i SidebarEvent m
@@ -72,7 +77,7 @@ component =
     }
 
 initialState :: forall i. i -> State
-initialState _ = { tabs: empty, selectedElem: Nothing }
+initialState _ = { tabs: empty, selectedElem: Nothing, tabHovered: Nothing }
 
 _tab :: SProxy "tab"
 _tab = SProxy
@@ -89,22 +94,35 @@ render state =
           )
   in
     HH.div
-      [ HP.id_ "tabs", HE.onDoubleClick (\ev -> Just (UserOpenedTab $ ME.toEvent ev)) ]
+      [ HP.id_ "tabs"
+      , HE.onDoubleClick (\ev -> Just (UserOpenedTab $ ME.toEvent ev))
+      ]
       (A.mapWithIndex renderTab tabs)
   where
   renderTab index (Tab t) =
     HH.div
       [ HP.id_ $ show t.id
       , HP.draggable true
+      -- drag events
       , HE.onDragStart \evt -> Just $ TabDragStart evt (Tab t) index
       , HE.onDragEnd \evt -> Just $ TabDragEnd evt
       , HE.onDragOver \evt -> Just $ TabDragOver evt index
+      -- fake hover
+      , HE.onMouseEnter \evt -> Just $ TabMouseEnter evt index
+      , HE.onMouseLeave \evt -> Just $ TabMouseLeave evt index
+      -- click event
       , HE.onClick (\ev -> Just (UserActivatedTab t.id (ME.toEvent ev)))
+      -- TODO: on double click on a tab, open a tab right below
+      -- clases
       , HP.classes $ H.ClassName
           <$> A.catMaybes
               [ Just "tab"
               , if t.active then Just "active" else Nothing
               , if isDiscarded t then Just "discarded" else Nothing
+              , case state.tabHovered of
+                  Just idx
+                    | idx == index -> Just "hover"
+                  _ -> Nothing
               ]
       , HP.title t.title
       ]
@@ -160,6 +178,7 @@ handleAction = case _ of
           Event.stopPropagation ev
           log "sb: created a tab"
     H.raise SbCreateTab
+  -- Drag actions
   TabDragStart dragEvent tab index -> do
     let
       dataTransfer = DE.dataTransfer dragEvent
@@ -167,7 +186,7 @@ handleAction = case _ of
       $ do
           DT.setData textPlain "" dataTransfer
           DT.setDropEffect DT.Move dataTransfer
-    H.modify_ \s -> s { selectedElem = Just { tab: tab, originalIndex: index, overIndex: index } }
+    H.modify_ _ { selectedElem = Just { tab: tab, originalIndex: index, overIndex: index }, tabHovered = Nothing }
     H.liftEffect $ log $ "sb: drag start from " <> (show index)
   TabDragOver event index -> do
     -- prevent the ghost from flying back to its (wrong) place
@@ -177,16 +196,24 @@ handleAction = case _ of
     case state.selectedElem of
       Just selectedRec@{ originalIndex, overIndex }
         | overIndex /= index -> do
-          H.modify_ (\s -> s { selectedElem = Just $ selectedRec { overIndex = index } })
-          H.liftEffect $ log $ "sb: drag over from " <> (show overIndex) <> " to " <> (show index)
+          H.modify_ (_ { selectedElem = Just $ selectedRec { overIndex = index } })
       _ -> pure unit
   TabDragEnd event -> do
     state <- H.get
     case state.selectedElem of
       Nothing -> pure unit
-      Just { tab: (Tab t), originalIndex, overIndex } -> do
-        H.liftEffect $ log $ "sb: drag end from " <> (show originalIndex) <> " to " <> (show overIndex)
-        H.raise (SbMoveTab t.id overIndex)
+      Just { tab: (Tab t), originalIndex, overIndex } -> H.raise (SbMoveTab t.id overIndex)
+  -- Mouse over action
+  TabMouseEnter evt index -> do
+    state <- H.get
+    case state of
+      { tabHovered: Nothing, selectedElem: Nothing } -> H.modify_ _ { tabHovered = Just index }
+      _ -> pure unit
+  TabMouseLeave evt index -> do
+    state <- H.get
+    case state.tabHovered of
+      Nothing -> pure unit
+      Just prevIdx -> H.modify_ _ { tabHovered = Nothing }
 
 handleQuery :: forall act o m a. Query a -> H.HalogenM State act () o m (Maybe a)
 handleQuery = case _ of
