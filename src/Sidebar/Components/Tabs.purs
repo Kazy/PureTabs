@@ -7,8 +7,8 @@ import Control.Alt ((<$>))
 import Control.Alternative (empty, pure, (*>))
 import Control.Bind (bind, discard, (>=>), (>>=))
 import Control.Category (identity, (<<<), (>>>))
-import Data.Array (mapWithIndex, catMaybes, deleteAt, filter, findIndex, head, insertAt, modifyAt, (!!)) as A
-import Data.Eq ((/=), (==))
+import Data.Array (mapWithIndex, catMaybes, deleteAt, filter, findIndex, head, insertAt, modifyAt, (!!), length) as A
+import Data.Eq ((==))
 import Data.Function (flip, ($))
 import Data.Lens (over)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
@@ -47,6 +47,7 @@ data Action
   | TabDragStart DE.DragEvent Tab Int
   | TabDragOver DE.DragEvent Int
   | TabDragEnd DE.DragEvent
+  | TabDragLeave DE.DragEvent
   -- mouse event
   | TabMouseEnter ME.MouseEvent Int
   | TabMouseLeave ME.MouseEvent Int
@@ -54,7 +55,7 @@ data Action
 type DraggedTab
   = { tab :: Tab
     , originalIndex :: Int
-    , overIndex :: Int
+    , overIndex :: Maybe Int
     }
 
 type State
@@ -90,12 +91,15 @@ render state =
     tabs =
       fromMaybe tabsWithIndex
         $ state.selectedElem
-        >>= ( \{ originalIndex, overIndex } -> moveElem originalIndex overIndex tabsWithIndex
+        >>= ( \{ originalIndex, overIndex } -> case overIndex of
+              Just overIndex' -> moveElem originalIndex overIndex' tabsWithIndex
+              Nothing -> A.deleteAt originalIndex tabsWithIndex
           )
   in
     HH.div
       [ HP.id_ "tabs"
       , HE.onDoubleClick (\ev -> Just (UserOpenedTab Nothing (ME.toEvent ev)))
+      , HE.onDragOver \evt -> Just $ TabDragOver evt (A.length tabs)
       ]
       (A.mapWithIndex renderTab tabs)
   where
@@ -107,7 +111,8 @@ render state =
       , HE.onDragStart \evt -> Just $ TabDragStart evt (Tab t) index
       , HE.onDragEnd \evt -> Just $ TabDragEnd evt
       , HE.onDragOver \evt -> Just $ TabDragOver evt index
-      -- fake hover
+      , HE.onDragLeave \evt -> Just $ TabDragLeave evt
+      -- fake hover to fix incorrect css hover effect during dragging
       , HE.onMouseEnter \evt -> Just $ TabMouseEnter evt index
       , HE.onMouseLeave \evt -> Just $ TabMouseLeave evt index
       -- click event
@@ -187,23 +192,42 @@ handleAction = case _ of
       $ do
           DT.setData textPlain "" dataTransfer
           DT.setDropEffect DT.Move dataTransfer
-    H.modify_ _ { selectedElem = Just { tab: tab, originalIndex: index, overIndex: index }, tabHovered = Nothing }
+    H.modify_ _ { selectedElem = Just { tab: tab, originalIndex: index, overIndex: Just index }, tabHovered = Nothing }
     H.liftEffect $ log $ "sb: drag start from " <> (show index)
   TabDragOver event index -> do
     -- prevent the ghost from flying back to its (wrong) place
     -- see https://stackoverflow.com/questions/42725321/prevent-html5-drag-ghost-image-flying-back
-    H.liftEffect $ Event.preventDefault (DE.toEvent event)
+    let
+      evt = (DE.toEvent event)
+    H.liftEffect $ Event.preventDefault evt
+    -- because we're also triggering this event on over of the empty part of the
+    -- tab list, we need to prevent it from triggering twice.
+    H.liftEffect $ Event.stopPropagation evt
     state <- H.get
     case state.selectedElem of
-      Just selectedRec@{ originalIndex, overIndex }
-        | overIndex /= index -> do
-          H.modify_ (_ { selectedElem = Just $ selectedRec { overIndex = index } })
-      _ -> pure unit
+      Just selectedRec@{ originalIndex, overIndex } -> case overIndex of
+        -- we only do nothing if we're still over the same element
+        Just overIndex'
+          | overIndex' == index -> log "hovering over the same index"
+        _ ->
+          H.modify_ (_ { selectedElem = Just $ selectedRec { overIndex = Just index } })
+            *> (log $ "hover changed from " <> (show originalIndex) <> " to " <> (show index))
+      Nothing -> log "nothing being dragged right now"
   TabDragEnd event -> do
     state <- H.get
     case state.selectedElem of
       Nothing -> pure unit
-      Just { tab: (Tab t), originalIndex, overIndex } -> H.raise (SbMoveTab t.id overIndex)
+      -- On success, we don't remove the dragged element here. It is instead done in the
+      -- query handler for TabMoved. See comment there for the explanation.
+      Just { tab: (Tab t), originalIndex, overIndex: (Just overIndex) } -> H.raise (SbMoveTab t.id overIndex)
+      Just { overIndex: Nothing } -> H.modify_ _ { selectedElem = Nothing }
+  TabDragLeave event -> do
+    state <- H.get
+    case state.selectedElem of
+      Just selectedRec@{ overIndex: (Just overIndex) } -> 
+        H.modify_ _ { selectedElem = Just $ selectedRec { overIndex = Nothing } }
+          *> (log $ "drag leave from " <> (show overIndex) <> " to nothing")
+      _ -> pure unit
   -- Mouse over action
   TabMouseEnter evt index -> do
     state <- H.get
