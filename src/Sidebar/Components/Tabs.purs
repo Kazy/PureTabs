@@ -1,6 +1,6 @@
 module PureTabs.Sidebar.Tabs (component, Query(..)) where
 
-import Prelude (sub)
+import Prelude (sub, negate)
 import Browser.Tabs (Tab(..), TabId)
 import Browser.Tabs.OnUpdated (ChangeInfo(..), ChangeInfoRec)
 import CSS.Background as CssBackground
@@ -119,6 +119,8 @@ render state =
               Just overIndex' -> moveElem originalIndex overIndex' tabsWithIndex
               Nothing -> A.deleteAt originalIndex tabsWithIndex
           )
+
+    currentOverIndex = fromMaybe (-1) $ state.selectedElem >>= _.overIndex
   in
     HH.div
       [ HP.id_ "tabs"
@@ -137,10 +139,11 @@ render state =
           , HE.onDragOver \evt -> Just $ PreventPropagation $ DE.toEvent evt
           , HE.onDragLeave \evt -> Just $ TabDragLeave evt
           ]
-          (A.mapWithIndex renderTab tabs)
+          (A.mapWithIndex (\idx tab -> renderTab idx (idx == currentOverIndex) tab) tabs)
       ]
   where
-  renderTab index (Tab t) =
+  renderTab :: Int -> Boolean -> Tab -> H.ComponentHTML Action () m
+  renderTab index isBeingDragged (Tab t) =
     HH.div
       [ HP.id_ $ show t.id
       , HP.draggable true
@@ -160,6 +163,7 @@ render state =
               [ Just "tab"
               , if t.active then Just "active" else Nothing
               , if isDiscarded t then Just "discarded" else Nothing
+              , if isBeingDragged then Just "being-dragged" else Nothing
               , case state.tabHovered of
                   Just idx
                     | idx == index -> Just "hover"

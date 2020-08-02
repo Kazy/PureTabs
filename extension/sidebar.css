@@ -39,6 +39,10 @@ body,
   color: grey;
 }
 
+.tab.being-dragged {
+  border: dashed black 1px;
+}
+
 .tab-title {
   display: inline-block;
   align-self: center;
