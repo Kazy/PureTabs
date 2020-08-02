@@ -128,14 +128,13 @@ render state =
       , HE.onDragStart \evt -> Just $ TabDragStart evt (Tab t) index
       , HE.onDragEnd \evt -> Just $ TabDragEnd evt
       , HE.onDragOver \evt -> Just $ TabDragOver evt index
-      {-- , HE.onDragLeave \evt -> Just $ TabDragLeave evt --}
       -- fake hover to fix incorrect css hover effect during dragging
       , HE.onMouseEnter \evt -> Just $ TabMouseEnter evt index
       , HE.onMouseLeave \evt -> Just $ TabMouseLeave evt index
       -- click event
       , HE.onClick (\ev -> Just (UserActivatedTab t.id (ME.toEvent ev)))
       , HE.onDoubleClick (\ev -> Just (UserOpenedTab (Just t.id) (ME.toEvent ev)))
-      -- clases
+      -- classes
       , HP.classes $ H.ClassName
           <$> A.catMaybes
               [ Just "tab"
