@@ -10,6 +10,7 @@ import Control.Bind (bind, discard, (>=>), (>>=))
 import Control.Category (identity, (<<<), (>>>))
 import Data.Array (mapWithIndex, catMaybes, deleteAt, filter, findIndex, head, insertAt, modifyAt, (!!), length) as A
 import Data.Eq ((==))
+import Data.Time.Duration (Milliseconds(..))
 import Data.Function (flip, ($))
 import Data.Lens (over)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
@@ -18,6 +19,11 @@ import Data.Monoid ((<>))
 import Data.Show (show)
 import Data.Symbol (SProxy(..))
 import Data.Unit (Unit, unit)
+import Effect.AVar (AVar)
+import Effect.Aff.AVar (put, empty, take) as AVar
+import Effect.Aff (Aff, Fiber, forkAff, delay, killFiber)
+import Effect.Aff.Class (class MonadAff)
+import Effect.Exception (error)
 import Effect.Class (class MonadEffect)
 import Effect.Class.Console (log)
 import Halogen as H
@@ -49,12 +55,13 @@ data Action
   | TabDragOver DE.DragEvent Int
   | TabDragEnd DE.DragEvent
   | TabDragLeave DE.DragEvent
+  | TabDragLeaveRun DE.DragEvent
   -- mouse event
   | TabMouseEnter ME.MouseEvent Int
   | TabMouseLeave ME.MouseEvent Int
   -- special
   -- stop the propagation of the event
-  | PreventPropagation Event  
+  | PreventPropagation Event
 
 type DraggedTab
   = { tab :: Tab
@@ -62,13 +69,20 @@ type DraggedTab
     , overIndex :: Maybe Int
     }
 
+-- Debouncer based on https://gist.github.com/natefaubion/3405f930b9008e52e5d995681a7d6f2b
+type Debouncer
+  = { var :: AVar Unit
+    , timer :: Fiber Unit
+    }
+
 type State
   = { tabs :: Array Tab
     , selectedElem :: Maybe DraggedTab
     , tabHovered :: Maybe Int
+    , leaveDebounce :: Maybe Debouncer
     }
 
-component :: forall i m. MonadEffect m => H.Component HH.HTML Query i SidebarEvent m
+component :: forall i m. MonadEffect m => MonadAff m => H.Component HH.HTML Query i SidebarEvent m
 component =
   H.mkComponent
     { initialState
@@ -82,7 +96,13 @@ component =
     }
 
 initialState :: forall i. i -> State
-initialState _ = { tabs: empty, selectedElem: Nothing, tabHovered: Nothing }
+initialState _ = { tabs: empty, selectedElem: Nothing, tabHovered: Nothing, leaveDebounce: Nothing }
+
+debounceTimeout :: Milliseconds -> AVar Unit -> Aff (Fiber Unit)
+debounceTimeout ms var =
+  forkAff do
+    delay ms
+    AVar.put unit var
 
 _tab :: SProxy "tab"
 _tab = SProxy
@@ -115,7 +135,7 @@ render state =
           -- The same happens for dragLeave, but with the tab disappearing
           -- brefiely.
           , HE.onDragOver \evt -> Just $ PreventPropagation $ DE.toEvent evt
-          , HE.onDragLeave \evt -> Just $ PreventPropagation $ DE.toEvent evt
+          , HE.onDragLeave \evt -> Just $ TabDragLeave evt
           ]
           (A.mapWithIndex renderTab tabs)
       ]
@@ -176,7 +196,38 @@ render state =
 
   isDiscarded _ = false
 
-handleAction :: forall m. MonadEffect m => Action -> H.HalogenM State Action () SidebarEvent m Unit
+cancelLeaveDebounce :: forall m. MonadAff m => State -> H.HalogenM State Action () SidebarEvent m Unit
+cancelLeaveDebounce state = case state.leaveDebounce of
+  Just { var, timer } -> do
+    H.liftAff $ killFiber (error "could not cancel timer") timer
+    H.modify_ _ { leaveDebounce = Nothing }
+  Nothing -> pure unit
+
+runDebounce :: forall m. MonadAff m => Action -> H.HalogenM State Action () SidebarEvent m Unit
+runDebounce actionToRun = do
+  state <- H.get
+  let
+    debounceTime = Milliseconds 50.0
+  case state.leaveDebounce of
+    Nothing -> do
+      var <- H.liftAff AVar.empty
+      timer <- H.liftAff (debounceTimeout debounceTime var)
+      _ <-
+        H.fork do
+          H.liftAff (AVar.take var)
+          H.modify_ _ { leaveDebounce = Nothing }
+          handleAction actionToRun
+      let
+        debouncer = { var, timer }
+      H.modify_ _ { leaveDebounce = Just debouncer }
+    Just { var, timer } -> do
+      H.liftAff $ killFiber (error "could not cancel timer") timer
+      nextTimer <- H.liftAff (debounceTimeout debounceTime var)
+      let
+        debouncer = { var, timer: nextTimer }
+      H.modify_ _ { leaveDebounce = Just debouncer }
+
+handleAction :: forall m. MonadEffect m => MonadAff m => Action -> H.HalogenM State Action () SidebarEvent m Unit
 handleAction = case _ of
   UserClosedTab tid ev -> do
     H.liftEffect
@@ -219,30 +270,32 @@ handleAction = case _ of
     -- tab list, we need to prevent it from triggering twice.
     H.liftEffect $ Event.stopPropagation evt
     state <- H.get
+    cancelLeaveDebounce state
     case state.selectedElem of
       Just selectedRec@{ originalIndex, overIndex } -> case overIndex of
         -- we only do nothing if we're still over the same element
         Just overIndex'
           | overIndex' == index -> pure unit
-        _ ->
-          H.modify_ (_ { selectedElem = Just $ selectedRec { overIndex = Just index } })
+        _ -> H.modify_ (_ { selectedElem = Just $ selectedRec { overIndex = Just index } })
       Nothing -> pure unit
   PreventPropagation event -> do
     H.liftEffect $ Event.stopImmediatePropagation event
     pure unit
   TabDragEnd event -> do
     state <- H.get
+    cancelLeaveDebounce state
     case state.selectedElem of
       Nothing -> pure unit
       -- On success, we don't remove the dragged element here. It is instead done in the
       -- query handler for TabMoved. See comment there for the explanation.
       Just { tab: (Tab t), originalIndex, overIndex: (Just overIndex) } -> H.raise (SbMoveTab t.id overIndex)
       Just { overIndex: Nothing } -> H.modify_ _ { selectedElem = Nothing }
-  TabDragLeave event -> do
+  TabDragLeave event -> runDebounce $ TabDragLeaveRun event
+  TabDragLeaveRun event -> do
     state <- H.get
+    H.liftEffect $ log "actually running drag leave"
     case state.selectedElem of
-      Just selectedRec@{ overIndex: (Just overIndex) } ->
-        H.modify_ _ { selectedElem = Just $ selectedRec { overIndex = Nothing } }
+      Just selectedRec@{ overIndex: (Just overIndex) } -> H.modify_ _ { selectedElem = Just $ selectedRec { overIndex = Nothing } }
       _ -> pure unit
   -- Mouse over action
   TabMouseEnter evt index -> do
