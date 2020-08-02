@@ -1,5 +1,6 @@
 module PureTabs.Sidebar.Tabs (component, Query(..)) where
 
+import Prelude (sub)
 import Browser.Tabs (Tab(..), TabId)
 import Browser.Tabs.OnUpdated (ChangeInfo(..), ChangeInfoRec)
 import CSS.Background as CssBackground
@@ -51,6 +52,9 @@ data Action
   -- mouse event
   | TabMouseEnter ME.MouseEvent Int
   | TabMouseLeave ME.MouseEvent Int
+  -- special
+  -- stop the propagation of the event
+  | PreventPropagation Event  
 
 type DraggedTab
   = { tab :: Tab
@@ -99,9 +103,22 @@ render state =
     HH.div
       [ HP.id_ "tabs"
       , HE.onDoubleClick (\ev -> Just (UserOpenedTab Nothing (ME.toEvent ev)))
-      , HE.onDragOver \evt -> Just $ TabDragOver evt (A.length tabs)
+      , HE.onDragOver \evt -> Just $ TabDragOver evt (sub (A.length tabs) 1)
+      , HE.onDragLeave \evt -> Just $ TabDragLeave evt
       ]
-      (A.mapWithIndex renderTab tabs)
+      [ HH.div
+          [ HP.id_ "inner-tabs"
+          -- We prevent both propagation to avoid tabs blinking during drag and
+          -- drop. In the case of dragOver, the handler from #tabs triggers
+          -- when we drag over between two tabs (because of the margin), and
+          -- the tab jumps brefiely to the end. 
+          -- The same happens for dragLeave, but with the tab disappearing
+          -- brefiely.
+          , HE.onDragOver \evt -> Just $ PreventPropagation $ DE.toEvent evt
+          , HE.onDragLeave \evt -> Just $ PreventPropagation $ DE.toEvent evt
+          ]
+          (A.mapWithIndex renderTab tabs)
+      ]
   where
   renderTab index (Tab t) =
     HH.div
@@ -111,14 +128,13 @@ render state =
       , HE.onDragStart \evt -> Just $ TabDragStart evt (Tab t) index
       , HE.onDragEnd \evt -> Just $ TabDragEnd evt
       , HE.onDragOver \evt -> Just $ TabDragOver evt index
-      , HE.onDragLeave \evt -> Just $ TabDragLeave evt
+      {-- , HE.onDragLeave \evt -> Just $ TabDragLeave evt --}
       -- fake hover to fix incorrect css hover effect during dragging
       , HE.onMouseEnter \evt -> Just $ TabMouseEnter evt index
       , HE.onMouseLeave \evt -> Just $ TabMouseLeave evt index
       -- click event
       , HE.onClick (\ev -> Just (UserActivatedTab t.id (ME.toEvent ev)))
       , HE.onDoubleClick (\ev -> Just (UserOpenedTab (Just t.id) (ME.toEvent ev)))
-      -- TODO: on double click on a tab, open a tab right below
       -- clases
       , HP.classes $ H.ClassName
           <$> A.catMaybes
@@ -208,11 +224,13 @@ handleAction = case _ of
       Just selectedRec@{ originalIndex, overIndex } -> case overIndex of
         -- we only do nothing if we're still over the same element
         Just overIndex'
-          | overIndex' == index -> log "hovering over the same index"
+          | overIndex' == index -> pure unit
         _ ->
           H.modify_ (_ { selectedElem = Just $ selectedRec { overIndex = Just index } })
-            *> (log $ "hover changed from " <> (show originalIndex) <> " to " <> (show index))
-      Nothing -> log "nothing being dragged right now"
+      Nothing -> pure unit
+  PreventPropagation event -> do
+    H.liftEffect $ Event.stopImmediatePropagation event
+    pure unit
   TabDragEnd event -> do
     state <- H.get
     case state.selectedElem of
@@ -224,9 +242,8 @@ handleAction = case _ of
   TabDragLeave event -> do
     state <- H.get
     case state.selectedElem of
-      Just selectedRec@{ overIndex: (Just overIndex) } -> 
+      Just selectedRec@{ overIndex: (Just overIndex) } ->
         H.modify_ _ { selectedElem = Just $ selectedRec { overIndex = Nothing } }
-          *> (log $ "drag leave from " <> (show overIndex) <> " to nothing")
       _ -> pure unit
   -- Mouse over action
   TabMouseEnter evt index -> do
