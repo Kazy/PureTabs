@@ -1,6 +1,8 @@
 module PureTabs.Model
   ( ExtWindow
   , GlobalState
+  , Group
+  , GroupId
   , _active
   , _id
   , _index
@@ -18,7 +20,7 @@ module PureTabs.Model
   , _windows
   , emptyWindow
   , initialGlobalState
-  , tabsToGlobalState
+  , initialTabListToGlobalState
   , BackgroundEvent(..)
   , SidebarEvent(..)
   ) where
@@ -30,18 +32,20 @@ import Control.Alternative (empty)
 import Control.Bind (join)
 import Control.Category ((>>>), (<<<))
 import Control.Plus (empty) as A
-import Data.Array (sortBy, singleton) as A
+import Data.Array (sortBy, singleton, fromFoldable) as A
+import Data.Eq ((==))
 import Data.Function (on, ($))
-import Data.Functor (map)
+import Data.Functor (map, (<#>), (<$>))
 import Data.Generic.Rep (class Generic)
 import Data.Generic.Rep.Show (genericShow)
 import Data.Lens (Lens', Traversal', _Just, view)
 import Data.Lens.At (at)
 import Data.Lens.Iso.Newtype (_Newtype)
 import Data.Lens.Record (prop)
-import Data.List (List(..), catMaybes, concat, head, singleton)
+import Data.List (List(..), head, groupBy) as L
+import Data.List.NonEmpty (head, NonEmptyList, toList) as NEL
 import Data.Map as M
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Ord (compare)
 import Data.Show (class Show)
 import Data.Symbol (SProxy(..))
@@ -59,14 +63,33 @@ initialGlobalState =
   , detached: Nothing
   }
 
+newtype GroupId
+  = GroupId Int
+
+type Group
+  = { id :: GroupId, name :: String }
+
+newGroup :: Int -> (Maybe String) -> Group
+newGroup gid name = { id: GroupId gid, name: fromMaybe "Unnamed" name }
+
 type ExtWindow
   = { positions :: Array TabId
     , tabs :: M.Map TabId Tab
     , port :: Maybe Port
+    , groups :: Array Group
+    , tabToGroup :: M.Map TabId GroupId
+    , currentGroup :: GroupId
     }
 
 emptyWindow :: ExtWindow
-emptyWindow = { positions: A.empty, tabs: M.empty, port: Nothing }
+emptyWindow =
+  { positions: A.empty
+  , tabs: M.empty
+  , port: Nothing
+  , groups: A.singleton (newGroup 1 Nothing)
+  , tabToGroup: M.empty
+  , currentGroup: GroupId 1
+  }
 
 _tabs :: forall a r. Lens' { tabs :: a | r } a
 _tabs = prop (SProxy :: _ "tabs")
@@ -128,30 +151,30 @@ _tabFromTabIdAndWindow s tabId =
 
     matchingTabId = map (M.lookup tabId) allTabs
   in
-    join $ head matchingTabId
+    join $ L.head matchingTabId
 
-tabsToGlobalState :: List Tab -> GlobalState
-tabsToGlobalState tabs = { windows: tabsToWindows tabs, detached: Nothing }
+initialTabListToGlobalState :: L.List Tab -> GlobalState
+initialTabListToGlobalState tabs = { windows: windows, detached: Nothing }
   where
-  tabsToWindows :: List Tab -> M.Map WindowId ExtWindow
-  tabsToWindows tabs' = M.fromFoldableWith merge $ map mapTab tabs'
+  groupedTabs = L.groupBy (\(Tab t1) (Tab t2) -> t1.windowId == t2.windowId) tabs
 
-  merge :: ExtWindow -> ExtWindow -> ExtWindow
-  merge w1 w2 =
+  tabsToWindow :: NEL.NonEmptyList Tab -> Tuple WindowId ExtWindow
+  tabsToWindow tabs' =
     let
-      mergedMap = M.union w1.tabs w2.tabs
+      windowId = (\(Tab t) -> t.windowId) $ NEL.head tabs'
+
+      window =
+        { tabs: M.fromFoldable $ tabs' <#> \(Tab t) -> Tuple t.id (Tab t)
+        , port: Nothing
+        , positions: (\(Tab t) -> t.id) <$> A.sortBy (compare `on` \(Tab t) -> t.index) (A.fromFoldable tabs')
+        , groups: A.singleton (newGroup 1 Nothing)
+        , tabToGroup: M.fromFoldable $ tabs' <#> \(Tab t) -> Tuple t.id (GroupId 1)
+        , currentGroup: GroupId 1
+        }
     in
-      { tabs: mergedMap
-      , port: Nothing
-      -- TODO do that after building the state, to avoid going creating a new list each time
-      , positions: (mapPositions >>> (A.sortBy (compare `on` snd)) >>> (map fst)) mergedMap
-      }
+      Tuple windowId window
 
-  mapTab :: Tab -> Tuple WindowId ExtWindow
-  mapTab (Tab t) = Tuple t.windowId { tabs: M.singleton t.id (Tab t), port: Nothing, positions: A.singleton t.id }
-
-  mapPositions :: M.Map TabId Tab -> Array (Tuple TabId Int)
-  mapPositions = M.toUnfoldableUnordered >>> (map \(Tuple tid (Tab t)) -> tid /\ t.index)
+  windows = M.fromFoldable $ (tabsToWindow <$> groupedTabs)
 
 data BackgroundEvent
   = BgInitialTabList (Array Tab)

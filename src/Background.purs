@@ -13,23 +13,21 @@ import Browser.Utils (Listener, mkListenerOne, mkListenerTwo, mkListenerUnit)
 import Browser.Windows (Window)
 import Browser.Windows.OnCreated as WinOnCreated
 import Browser.Windows.OnRemoved as WinOnRemoved
-import Control.Alt (map, (<#>), (<$>), (<|>))
-import Control.Alternative (empty, pure, (*>))
+import Control.Alt (map, (<#>), (<|>))
+import Control.Alternative (pure, (*>))
 import Control.Bind ((=<<), (>>=))
 import Control.Category (identity, (>>>))
 import Data.Array as A
 import Data.CommutativeRing ((+))
 import Data.Eq ((/=), (==))
-import Data.Foldable (for_)
 import Data.Function (const, flip, (#))
 import Data.Lens (_Just, over, preview, set, view)
 import Data.Lens.At (at)
 import Data.Lens.Iso.Newtype (_Newtype)
-import Data.List (List, foldMap, foldr)
+import Data.List (List, foldMap)
 import Data.Map as M
-import Data.Maybe (Maybe(..), maybe, maybe')
+import Data.Maybe (Maybe(..), fromMaybe, maybe, maybe')
 import Data.Monoid ((<>))
-import Data.Newtype (unwrap)
 import Data.Show (show)
 import Data.Unit (unit)
 import Debug.Trace (traceM)
@@ -41,7 +39,26 @@ import Effect.Exception (throw)
 import Effect.Exception.Unsafe (unsafeThrow)
 import Effect.Ref as Ref
 import Prelude (Unit, bind, ($), discard, (<<<))
-import PureTabs.Model (BackgroundEvent(..), ExtWindow, GlobalState, SidebarEvent(..), _active, _index, _port, _portFromWindow, _portFromWindowId, _positions, _tabFromTabIdAndWindow, _tabFromWindow, _tabs, _windowIdToWindow, _windows, _windowIdToTabIdToTab, emptyWindow, tabsToGlobalState)
+import PureTabs.Model
+  ( BackgroundEvent(..)
+  , ExtWindow
+  , GlobalState
+  , SidebarEvent(..)
+  , _active
+  , _index
+  , _port
+  , _portFromWindow
+  , _portFromWindowId
+  , _positions
+  , _tabFromTabIdAndWindow
+  , _tabFromWindow
+  , _tabs
+  , _windowIdToWindow
+  , _windows
+  , _windowIdToTabIdToTab
+  , emptyWindow
+  , initialTabListToGlobalState
+  )
 
 type Ports
   = Ref.Ref (List Runtime.Port)
@@ -54,7 +71,7 @@ main = do
   runMain :: Aff Unit
   runMain = do
     allTabs <- query
-    liftEffect $ initializeBackground =<< (Ref.new $ tabsToGlobalState allTabs)
+    liftEffect $ initializeBackground =<< (Ref.new $ initialTabListToGlobalState allTabs)
 
 initializeBackground :: Ref.Ref GlobalState -> Effect Unit
 initializeBackground ref = do
@@ -292,10 +309,7 @@ initWindowState :: Runtime.Port -> (Ref.Ref GlobalState) -> WindowId -> Effect U
 initWindowState port ref winId =
   (flip Ref.modify_) ref
     $ over (_windows <<< (at winId))
-        ( case _ of
-            Nothing -> Just $ { tabs: M.empty, port: Just port, positions: empty }
-            Just win -> Just $ set _port (Just port) win
-        )
+        (\win -> Just $ set _port (Just port) (fromMaybe emptyWindow win))
 
 -- TODO don't pass the full ref, but only a set of function to manipulate/access 
 -- the data required
