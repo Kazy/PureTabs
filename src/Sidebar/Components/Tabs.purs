@@ -1,6 +1,5 @@
-module PureTabs.Sidebar.Tabs (component, Query(..)) where
+module PureTabs.Sidebar.Tabs (component, Query(..), Output(..)) where
 
-import Prelude (sub, negate)
 import Browser.Tabs (Tab(..), TabId)
 import Browser.Tabs.OnUpdated (ChangeInfo(..), ChangeInfoRec)
 import CSS.Background as CssBackground
@@ -10,7 +9,6 @@ import Control.Bind (bind, discard, (>=>), (>>=))
 import Control.Category (identity, (<<<), (>>>))
 import Data.Array (mapWithIndex, catMaybes, deleteAt, filter, findIndex, head, insertAt, modifyAt, (!!), length) as A
 import Data.Eq ((==))
-import Data.Time.Duration (Milliseconds(..))
 import Data.Function (flip, ($))
 import Data.Lens (over)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
@@ -18,19 +16,24 @@ import Data.MediaType.Common (textPlain)
 import Data.Monoid ((<>))
 import Data.Show (show)
 import Data.Symbol (SProxy(..))
+import Data.Time.Duration (Milliseconds(..))
 import Data.Unit (Unit, unit)
 import Effect.AVar (AVar)
-import Effect.Aff.AVar (put, empty, take) as AVar
 import Effect.Aff (Aff, Fiber, forkAff, delay, killFiber)
+import Effect.Aff.AVar (put, empty, take) as AVar
 import Effect.Aff.Class (class MonadAff)
-import Effect.Exception (error)
 import Effect.Class (class MonadEffect)
 import Effect.Class.Console (log)
+import Effect.Exception (error)
 import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.CSS as CSS
 import Halogen.HTML.Events as HE
+import Halogen.HTML.Properties (class_)
+import Halogen.HTML.Properties (class_, classes)
+import Halogen.HTML.Properties (class_, classes)
 import Halogen.HTML.Properties as HP
+import Prelude (sub, negate)
 import PureTabs.Model (SidebarEvent(..), _tabs)
 import Web.Event.Event (Event)
 import Web.Event.Event as Event
@@ -45,6 +48,9 @@ data Query a
   | TabActivated (Maybe TabId) TabId a
   | TabMoved TabId Int Int a
   | TabInfoChanged TabId ChangeInfo a
+
+data Output 
+  = TabsSidebarAction SidebarEvent
 
 data Action
   = UserClosedTab TabId Event
@@ -75,6 +81,7 @@ type Debouncer
     , timer :: Fiber Unit
     }
 
+
 type State
   = { tabs :: Array Tab
     , selectedElem :: Maybe DraggedTab
@@ -82,7 +89,7 @@ type State
     , leaveDebounce :: Maybe Debouncer
     }
 
-component :: forall i m. MonadEffect m => MonadAff m => H.Component HH.HTML Query i SidebarEvent m
+component :: forall i m. MonadEffect m => MonadAff m => H.Component HH.HTML Query i Output m
 component =
   H.mkComponent
     { initialState
@@ -147,16 +154,20 @@ render state =
     HH.div
       [ HP.id_ $ show t.id
       , HP.draggable true
+
       -- drag events
       , HE.onDragStart \evt -> Just $ TabDragStart evt (Tab t) index
       , HE.onDragEnd \evt -> Just $ TabDragEnd evt
       , HE.onDragOver \evt -> Just $ TabDragOver evt index
+
       -- fake hover to fix incorrect css hover effect during dragging
       , HE.onMouseEnter \evt -> Just $ TabMouseEnter evt index
       , HE.onMouseLeave \evt -> Just $ TabMouseLeave evt index
+
       -- click event
       , HE.onClick (\ev -> Just (UserActivatedTab t.id (ME.toEvent ev)))
       , HE.onDoubleClick (\ev -> Just (UserOpenedTab (Just t.id) (ME.toEvent ev)))
+
       -- classes
       , HP.classes $ H.ClassName
           <$> A.catMaybes
@@ -171,13 +182,16 @@ render state =
               ]
       , HP.title t.title
       ]
+
       [ HH.div [ HP.class_ $ H.ClassName "tab-favicon", faviconStyle t.favIconUrl ] []
+
       , HH.div [ HP.class_ $ H.ClassName "tab-title" ]
           [ HH.text
               $ case t.status of
                   Just "loading" -> "Loading ..."
                   _ -> t.title
           ]
+
       , HH.div
           [ HP.class_ $ H.ClassName "close-button-parent"
           , HE.onClick (\ev -> Just (UserClosedTab t.id (ME.toEvent ev)))
@@ -200,14 +214,14 @@ render state =
 
   isDiscarded _ = false
 
-cancelLeaveDebounce :: forall m. MonadAff m => State -> H.HalogenM State Action () SidebarEvent m Unit
+cancelLeaveDebounce :: forall m. MonadAff m => State -> H.HalogenM State Action () Output m Unit
 cancelLeaveDebounce state = case state.leaveDebounce of
   Just { var, timer } -> do
     H.liftAff $ killFiber (error "could not cancel timer") timer
     H.modify_ _ { leaveDebounce = Nothing }
   Nothing -> pure unit
 
-runDebounce :: forall m. MonadAff m => Action -> H.HalogenM State Action () SidebarEvent m Unit
+runDebounce :: forall m. MonadAff m => Action -> H.HalogenM State Action () Output m Unit
 runDebounce actionToRun = do
   state <- H.get
   let
@@ -224,6 +238,7 @@ runDebounce actionToRun = do
       let
         debouncer = { var, timer }
       H.modify_ _ { leaveDebounce = Just debouncer }
+
     Just { var, timer } -> do
       H.liftAff $ killFiber (error "could not cancel timer") timer
       nextTimer <- H.liftAff (debounceTimeout debounceTime var)
@@ -231,29 +246,33 @@ runDebounce actionToRun = do
         debouncer = { var, timer: nextTimer }
       H.modify_ _ { leaveDebounce = Just debouncer }
 
-handleAction :: forall m. MonadEffect m => MonadAff m => Action -> H.HalogenM State Action () SidebarEvent m Unit
+handleAction :: forall m. MonadEffect m => MonadAff m => Action -> H.HalogenM State Action () Output m Unit
 handleAction = case _ of
+
   UserClosedTab tid ev -> do
     H.liftEffect
       $ do
           Event.preventDefault ev
           Event.stopPropagation ev
           log "sb: closed a tab"
-    H.raise $ SbDeleteTab tid
+    H.raise $ TabsSidebarAction $ SbDeleteTab tid
+
   UserActivatedTab tid ev -> do
     H.liftEffect
       $ do
           Event.preventDefault ev
           Event.stopPropagation ev
           log "sb: activated a tab"
-    H.raise $ SbActivateTab tid
+    H.raise $ TabsSidebarAction $ SbActivateTab tid
+
   UserOpenedTab tid ev -> do
     H.liftEffect
       $ do
           Event.preventDefault ev
           Event.stopPropagation ev
           log "sb: created a tab"
-    H.raise $ SbCreateTab tid
+    H.raise $ TabsSidebarAction $ SbCreateTab tid
+
   -- Drag actions
   TabDragStart dragEvent tab index -> do
     let
@@ -264,6 +283,7 @@ handleAction = case _ of
           DT.setDropEffect DT.Move dataTransfer
     H.modify_ _ { selectedElem = Just { tab: tab, originalIndex: index, overIndex: Just index }, tabHovered = Nothing }
     H.liftEffect $ log $ "sb: drag start from " <> (show index)
+
   TabDragOver event index -> do
     -- prevent the ghost from flying back to its (wrong) place
     -- see https://stackoverflow.com/questions/42725321/prevent-html5-drag-ghost-image-flying-back
@@ -282,9 +302,11 @@ handleAction = case _ of
           | overIndex' == index -> pure unit
         _ -> H.modify_ (_ { selectedElem = Just $ selectedRec { overIndex = Just index } })
       Nothing -> pure unit
+
   PreventPropagation event -> do
     H.liftEffect $ Event.stopImmediatePropagation event
     pure unit
+
   TabDragEnd event -> do
     state <- H.get
     cancelLeaveDebounce state
@@ -292,21 +314,25 @@ handleAction = case _ of
       Nothing -> pure unit
       -- On success, we don't remove the dragged element here. It is instead done in the
       -- query handler for TabMoved. See comment there for the explanation.
-      Just { tab: (Tab t), originalIndex, overIndex: (Just overIndex) } -> H.raise (SbMoveTab t.id overIndex)
+      Just { tab: (Tab t), originalIndex, overIndex: (Just overIndex) } -> H.raise $ TabsSidebarAction (SbMoveTab t.id overIndex)
       Just { overIndex: Nothing } -> H.modify_ _ { selectedElem = Nothing }
+
   TabDragLeave event -> runDebounce $ TabDragLeaveRun event
+
   TabDragLeaveRun event -> do
     state <- H.get
     H.liftEffect $ log "actually running drag leave"
     case state.selectedElem of
       Just selectedRec@{ overIndex: (Just overIndex) } -> H.modify_ _ { selectedElem = Just $ selectedRec { overIndex = Nothing } }
       _ -> pure unit
+
   -- Mouse over action
   TabMouseEnter evt index -> do
     state <- H.get
     case state of
       { tabHovered: Nothing, selectedElem: Nothing } -> H.modify_ _ { tabHovered = Just index }
       _ -> pure unit
+
   TabMouseLeave evt index -> do
     state <- H.get
     case state.tabHovered of
@@ -315,17 +341,21 @@ handleAction = case _ of
 
 handleQuery :: forall act o m a. Query a -> H.HalogenM State act () o m (Maybe a)
 handleQuery = case _ of
+
   InitialTabList tabs a -> H.modify_ (\s -> s { tabs = tabs }) *> pure (Just a)
+
   TabCreated (Tab t) a ->
     H.modify_
       (over _tabs $ \tabs -> fromMaybe tabs $ A.insertAt t.index (Tab t) tabs)
       *> pure (Just a)
+
   TabDeleted tid a ->
     H.modify_
       ( over _tabs
           $ applyAtTabId tid A.deleteAt
       )
       *> pure (Just a)
+
   TabActivated oldTid tid a ->
     H.modify_
       ( over _tabs
@@ -333,6 +363,7 @@ handleQuery = case _ of
           >>> applyAtTabId tid (setTabActiveAtIndex true)
       )
       *> pure (Just a)
+
   TabMoved tid prev next a -> do
     state <- H.get
     let
@@ -348,6 +379,7 @@ handleQuery = case _ of
       -- state.
       H.modify_ \s -> s { selectedElem = Nothing }
     pure (Just a)
+
   TabInfoChanged tid cinfo a ->
     H.modify_
       ( over _tabs

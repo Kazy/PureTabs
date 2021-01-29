@@ -19,6 +19,7 @@ import Halogen.Aff as HA
 import Halogen.VDom.Driver (runUI)
 import Prelude (bind, discard)
 import PureTabs.Model (BackgroundEvent(..), SidebarEvent(..))
+import PureTabs.Sidebar.Bar as Bar
 import PureTabs.Sidebar.Tabs as Tabs
 import Web.DOM.ParentNode (QuerySelector(..))
 
@@ -31,7 +32,7 @@ main = do
     content' <- HA.selectElement (QuerySelector "#content")
     io <- case content' of
       Nothing -> throwError (error "Could not find #content")
-      Just content -> runUI Tabs.component unit content
+      Just content -> runUI Bar.component unit content
     io.subscribe $ onSidebarMsg port
     CR.runProcess ((onBackgroundMsgProducer port) CR.$$ onBackgroundMsgConsumer io.query)
 
@@ -66,6 +67,6 @@ onBackgroundMsgConsumer query =
 
 onSidebarMsg :: Runtime.Port -> CR.Consumer SidebarEvent Aff Unit
 onSidebarMsg port =
-  CR.consumer \msg -> do
+  CR.consumer \(msg) -> do
     liftEffect $ Runtime.postMessageJson port msg
     pure Nothing

@@ -20,6 +20,7 @@ You can edit this file as you like.
   , "halogen-css"
   , "lists"
   , "numbers"
+  , "ordered-collections"
   , "profunctor"
   , "profunctor-lenses"
   , "psci-support"
