@@ -26,11 +26,10 @@ module PureTabs.Model
   ) where
 
 import Browser.Runtime (Port)
-import Browser.Tabs (TabId(..), WindowId, Tab(..))
-import Browser.Tabs.OnUpdated (ChangeInfo(..))
-import Control.Alternative (empty)
+import Browser.Tabs (Tab(..), TabId, WindowId)
+import Browser.Tabs.OnUpdated (ChangeInfo)
 import Control.Bind (join)
-import Control.Category ((>>>), (<<<))
+import Control.Category ((<<<))
 import Control.Plus (empty) as A
 import Data.Array (sortBy, singleton, fromFoldable) as A
 import Data.Eq ((==))
@@ -42,15 +41,14 @@ import Data.Lens (Lens', Traversal', _Just, view)
 import Data.Lens.At (at)
 import Data.Lens.Iso.Newtype (_Newtype)
 import Data.Lens.Record (prop)
-import Data.List (List(..), head, groupBy) as L
-import Data.List.NonEmpty (head, NonEmptyList, toList) as NEL
+import Data.List (List, groupBy, head) as L
+import Data.List.NonEmpty (NonEmptyList, head) as NEL
 import Data.Map as M
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Ord (compare)
 import Data.Show (class Show)
 import Data.Symbol (SProxy(..))
-import Data.Tuple (Tuple(..), fst, snd, uncurry)
-import Data.Tuple.Nested ((/\))
+import Data.Tuple (Tuple(..))
 
 type GlobalState
   = { windows :: M.Map WindowId ExtWindow

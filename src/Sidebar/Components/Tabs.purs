@@ -29,9 +29,6 @@ import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.CSS as CSS
 import Halogen.HTML.Events as HE
-import Halogen.HTML.Properties (class_)
-import Halogen.HTML.Properties (class_, classes)
-import Halogen.HTML.Properties (class_, classes)
 import Halogen.HTML.Properties as HP
 import Prelude (sub, negate)
 import PureTabs.Model (SidebarEvent(..), _tabs)
