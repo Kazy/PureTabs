@@ -13,6 +13,7 @@ import Effect.Aff.Class (class MonadAff)
 import Effect.Class (class MonadEffect)
 import Halogen as H
 import Halogen.HTML as HH
+import Halogen.HTML.Properties as HP
 import Prelude (class Eq, class Ord, (<<<))
 import PureTabs.Model (SidebarEvent)
 import PureTabs.Sidebar.Tabs (Output(..))
@@ -67,8 +68,8 @@ component =
     }
   where
   render :: State -> H.ComponentHTML Action Slots m
-  render state = HH.div_ [
-    HH.div_ $ (uncurry renderTab) <$> (M.toUnfoldable state.groups)
+  render state = HH.div [ HP.id_ "bar" ] [
+    HH.div [ HP.id_ "bar-tabs"] $ (uncurry renderTab) <$> (M.toUnfoldable state.groups)
   ]
 
   renderTab :: GroupId -> Group -> H.ComponentHTML Action Slots m

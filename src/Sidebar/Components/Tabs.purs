@@ -8,13 +8,14 @@ import Control.Alternative (empty, pure, (*>))
 import Control.Bind (bind, discard, (>=>), (>>=))
 import Control.Category (identity, (<<<), (>>>))
 import Data.Array (mapWithIndex, catMaybes, deleteAt, filter, findIndex, head, insertAt, modifyAt, (!!), length) as A
-import Data.Eq ((==))
+import Data.Eq ((/=), (==))
 import Data.Function (flip, ($))
 import Data.Lens (over)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.MediaType.Common (textPlain)
 import Data.Monoid ((<>))
 import Data.Show (show)
+import Data.String.CodeUnits (length)
 import Data.Symbol (SProxy(..))
 import Data.Time.Duration (Milliseconds(..))
 import Data.Unit (Unit, unit)
@@ -30,7 +31,7 @@ import Halogen.HTML as HH
 import Halogen.HTML.CSS as CSS
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
-import Prelude (sub, negate)
+import Prelude (negate, sub)
 import PureTabs.Model (SidebarEvent(..), _tabs)
 import Web.Event.Event (Event)
 import Web.Event.Event as Event
@@ -145,7 +146,15 @@ render state =
           ]
           (A.mapWithIndex (\idx tab -> renderTab idx (idx == currentOverIndex) tab) tabs)
       ]
+
   where
+
+  threeDotBounces = HH.div [ HP.class_ (H.ClassName "three-dot-bounce") ] [
+    HH.div [HP.class_ (H.ClassName "three-dot-bounce-1")] [],  
+    HH.div [HP.class_ (H.ClassName "three-dot-bounce-2")] [],
+    HH.div [HP.class_ (H.ClassName "three-dot-bounce-3")] []
+    ]
+
   renderTab :: Int -> Boolean -> Tab -> H.ComponentHTML Action () m
   renderTab index isBeingDragged (Tab t) =
     HH.div
@@ -178,16 +187,12 @@ render state =
                   _ -> Nothing
               ]
       , HP.title t.title
-      ]
+      ] [
+      case t.status of 
+           Just "loading" -> threeDotBounces
+           _ -> HH.div [ HP.class_ $ H.ClassName "tab-favicon", faviconStyle t.favIconUrl ] [] 
 
-      [ HH.div [ HP.class_ $ H.ClassName "tab-favicon", faviconStyle t.favIconUrl ] []
-
-      , HH.div [ HP.class_ $ H.ClassName "tab-title" ]
-          [ HH.text
-              $ case t.status of
-                  Just "loading" -> "Loading ..."
-                  _ -> t.title
-          ]
+      , HH.div [ HP.class_ $ H.ClassName "tab-title" ] [ HH.text (if length t.title /= 0 then t.title else maybe "" identity t.url) ]
 
       , HH.div
           [ HP.class_ $ H.ClassName "close-button-parent"
