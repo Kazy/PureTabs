@@ -3,21 +3,25 @@ module PureTabs.Sidebar.Bar where
 import Browser.Tabs (Tab(..), TabId)
 import Control.Alternative (pure, (<$>))
 import Control.Bind (bind, discard, void, (<#>))
+import Data.Array as A
 import Data.Function (($))
 import Data.Map as M
 import Data.Maybe (Maybe(..))
+import Data.Set (toUnfoldable)
 import Data.Symbol (SProxy(..))
-import Data.Tuple (Tuple(..), uncurry)
+import Data.Tuple (Tuple(..))
 import Data.Unit (Unit, unit)
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (class MonadEffect)
 import Halogen as H
 import Halogen.HTML as HH
+import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
-import Prelude (class Eq, class Ord, (<<<))
+import Prelude (class Eq, class Ord, (<<<), (==))
 import PureTabs.Model (SidebarEvent)
 import PureTabs.Sidebar.Tabs (Output(..))
 import PureTabs.Sidebar.Tabs as Tabs
+import Sidebar.Utils (whenC)
 
 newtype GroupId
   = GroupId Int
@@ -45,8 +49,18 @@ initialState :: forall i. i -> State
 initialState _ =
   let
     firstGroupId = GroupId 0
+    secondGroupId = GroupId 1
+    thirdGroupId = GroupId 2
   in
-    { groups: M.singleton firstGroupId { name: "main", pos: 0 }, tabsToGroup: M.empty, currentGroup: firstGroupId }
+    { 
+      groups: M.fromFoldable [
+        Tuple firstGroupId { name: "main", pos: 0 }
+        -- , Tuple secondGroupId { name: "second", pos: 1}
+        -- , Tuple thirdGroupId { name: "third", pos: 2}
+      ], 
+      tabsToGroup: M.empty, 
+      currentGroup: firstGroupId 
+    }
 
 type Slots
   = ( tabs :: H.Slot Tabs.Query Tabs.Output GroupId )
@@ -67,19 +81,37 @@ component =
               }
     }
   where
-  render :: State -> H.ComponentHTML Action Slots m
-  render state = HH.div [ HP.id_ "bar" ] [
-    HH.div [ HP.id_ "bar-tabs"] $ (uncurry renderTab) <$> (M.toUnfoldable state.groups)
-  ]
 
-  renderTab :: GroupId -> Group -> H.ComponentHTML Action Slots m
-  renderTab groupId group = HH.slot _childLabel groupId Tabs.component unit (Just <<< (HandleTabsOutput groupId))
+  render :: State -> H.ComponentHTML Action Slots m
+  render state = 
+    let 
+        barListGroup = HH.div [ HP.id_ "bar-list" ] [HH.ul [ HP.id_ "bar-list-group"] $ 
+          (\(Tuple gid g) -> renderGroup gid (gid == state.currentGroup) g) <$> (M.toUnfoldable state.groups)]
+
+        tabsDivs = (toUnfoldable $ (M.keys state.groups)) <#> 
+          (\gid -> HH.div [
+            HP.classes [(H.ClassName "bar-tabs"), whenC (gid == state.currentGroup) (H.ClassName "bar-tabs-active")] 
+          ] [renderGroupTabs gid])
+    
+     in
+        HH.div [ HP.id_ "bar" ] $ A.cons barListGroup tabsDivs 
+
+  renderGroupTabs :: GroupId -> H.ComponentHTML Action Slots m
+  renderGroupTabs groupId = HH.slot _childLabel groupId Tabs.component unit (Just <<< (HandleTabsOutput groupId))
+
+  renderGroup :: GroupId -> Boolean -> Group -> H.ComponentHTML Action Slots m
+  renderGroup groupId isActive group =  
+    HH.li [ 
+      HP.classes [(H.ClassName "group-name"), whenC isActive (H.ClassName "active-group")],
+      HE.onClick (\ev -> Just (UserSelectedGroup groupId))
+    ] [ HH.text group.name ] 
 
   handleAction :: Action -> H.HalogenM State Action Slots SidebarEvent m Unit
-  handleAction = case _ of
-    UserSelectedGroup gid -> pure unit
-    HandleTabsOutput gid event -> case event of
-      TabsSidebarAction sbEvent -> H.raise sbEvent
+  handleAction = 
+    case _ of
+         UserSelectedGroup gid -> H.modify_ _ { currentGroup = gid }
+         HandleTabsOutput gid event -> case event of
+                                            TabsSidebarAction sbEvent -> H.raise sbEvent
 
   handleQuery :: forall act o a. Tabs.Query a -> H.HalogenM State act Slots o m (Maybe a)
   handleQuery = case _ of

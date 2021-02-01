@@ -1,9 +1,14 @@
+:root {
+  --group-bar-size: 25px;
+}
+
 html,
 body,
 #content {
   width: 100%;
   height: 100%;
   overflow: hidden visible;
+  background-color: #f9f9fa;
 }
 
 #bar {
@@ -11,9 +16,49 @@ body,
   height: 100%;
 }
 
-#bar-tabs {
+#bar-list {
+  background-color: #0c0c0d;
+  width: 100vh;
+  height: var(--group-bar-size);
+  position: fixed;
+  transform-origin: left top;
+  transform: rotate(-90deg) translateX(-100%);
+}
+
+#bar-list-group {
+  margin: 0 auto;
+  height: 100%;
+}
+
+#bar-list-group li {
+  padding-right: 10px;
+  padding-left: 10px;
+  margin-left: 1px;
+  float: right;
+  height: 100%;
+  line-height: calc(var(--group-bar-size)*0.80);
+  list-style: none;
+  border-left: solid #cfcfcf 1px;
+}
+
+.group-name {
+  color: #f9f9f2;
+}
+
+.group-name.active-group {
+  background-color: white;
+  color: black;
+}
+
+
+.bar-tabs {
   width: 100%;
   height: 100%;
+  margin-left: var(--group-bar-size);
+}
+
+.bar-tabs:not(.bar-tabs-active) {
+  display: none;
 }
 
 #tabs {
@@ -31,6 +76,7 @@ body,
   padding-left: 2px;
   padding-bottom: 1px;
   width: 100%;
+  background-color: #ffffff;
 }
 
 .tab.active {
