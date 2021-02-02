@@ -1,5 +1,7 @@
 :root {
+  --bar-black-color: #0c0c0d;
   --group-bar-size: 25px;
+  --top-menu-height: 20px;
 }
 
 html,
@@ -16,8 +18,28 @@ body,
   height: 100%;
 }
 
+#bar-menu {
+  width: 100%;
+  height: var(--top-menu-height);
+}
+
+#bar-menu ul {
+  background-color: var(--bar-black-color);
+  color: #f9f9f2;
+  list-style-type: none;
+  margin: 0 0 5px 0;
+  padding: 0;
+}
+
+#bar-menu li {
+  display: inline-block;
+  padding: 0 7px 0;
+  border-right: solid #cfcfcf 1px;
+}
+
 #bar-list {
-  background-color: #0c0c0d;
+  margin-top: 1px;
+  background-color: var(--bar-black-color);
   width: 100vh;
   height: var(--group-bar-size);
   position: fixed;
@@ -53,7 +75,7 @@ body,
 
 .bar-tabs {
   width: calc(100% - var(--group-bar-size));
-  height: 100%;
+  height: calc(100% - var(--top-menu-height));
   margin-left: var(--group-bar-size);
 }
 

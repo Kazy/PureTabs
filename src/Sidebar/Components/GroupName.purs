@@ -4,6 +4,7 @@ module Sidebar.Component.GroupName (component, NewName) where
 import Control.Monad.Free (liftF)
 import Data.Foldable (elem)
 import Data.Maybe (Maybe(..))
+import Data.String.CodeUnits (length)
 import Data.Tuple.Nested ((/\))
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (liftEffect)
@@ -28,8 +29,8 @@ import Web.Event.EventTarget (EventTarget)
 import Web.Event.EventTarget as ET
 import Web.HTML (window) as Web
 import Web.HTML.HTMLDocument as HTMLDocument
-import Web.HTML.Window (document) as Web
 import Web.HTML.HTMLElement (focus) as Web
+import Web.HTML.Window (document) as Web
 import Web.UIEvent.InputEvent (InputEvent, fromEvent)
 import Web.UIEvent.InputEvent as IE
 import Web.UIEvent.KeyboardEvent as KE
@@ -51,10 +52,14 @@ component = Hooks.component \rec name -> Hooks.do
   let 
       onKeyEvent keyEvent 
         | KE.key keyEvent == "Enter" = 
-            Just do 
-               Hooks.put isRenamingIdx false 
-               Hooks.put initialNameIdx chars
-               Hooks.raise rec.outputToken chars
+            Just $ case (length chars) of 
+              0 -> do 
+                 Hooks.put isRenamingIdx false
+                 Hooks.put charsIdx initialName
+              _ -> do
+                 Hooks.put isRenamingIdx false 
+                 Hooks.put initialNameIdx chars
+                 Hooks.raise rec.outputToken chars
         | KE.key keyEvent == "Escape" = 
           Just do 
              Hooks.put charsIdx initialName

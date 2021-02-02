@@ -1,25 +1,29 @@
 module PureTabs.Sidebar.Bar where
 
 import Browser.Tabs (Tab(..), TabId)
-import Control.Alternative (pure, (<$>))
+import Control.Alternative (class Functor, pure, (<$>))
 import Control.Bind (bind, discard, void, (<#>))
+import Data.Array ((:))
 import Data.Array as A
 import Data.Function (($))
+import Data.Map (insert, size)
 import Data.Map as M
 import Data.Maybe (Maybe(..))
-import Data.Set (toUnfoldable)
+import Data.Set (toUnfoldable, Set) as S
+import Data.Set.NonEmpty (max, NonEmptySet, cons) as NES
 import Data.Symbol (SProxy(..))
 import Data.Tuple (Tuple(..))
 import Data.Unit (Unit, unit)
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (class MonadEffect)
-import Halogen (ComponentHTML)
+import Effect.Class.Console (log)
+import Halogen (ComponentHTML, get, liftEffect)
 import Halogen as H
 import Halogen.HTML (slot)
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
-import Prelude (class Eq, class Ord, (<<<), (==))
+import Prelude (class Eq, class Ord, class Show, show, (+), (<<<), (<>), (==))
 import PureTabs.Model (SidebarEvent)
 import PureTabs.Sidebar.Tabs (Output(..))
 import PureTabs.Sidebar.Tabs as Tabs
@@ -31,8 +35,10 @@ newtype GroupId
   = GroupId Int
 
 derive instance eqGroupId :: Eq GroupId
-
 derive instance ordGroupId :: Ord GroupId
+
+instance showGroupId :: Show GroupId where 
+  show (GroupId gid) = "GroupId(" <> (show gid) <> ")"
 
 type Group
   = { name :: String
@@ -48,14 +54,13 @@ type State
 data Action
   = UserSelectedGroup GroupId
   | UserRenameGroup GroupId String
+  | UserCreatedGroup
   | HandleTabsOutput GroupId Tabs.Output
 
 initialState :: forall i. i -> State
 initialState _ =
   let
     firstGroupId = GroupId 0
-    secondGroupId = GroupId 1
-    thirdGroupId = GroupId 2
   in
     { 
       groups: M.fromFoldable [ Tuple firstGroupId { name: "main", pos: 0 } ]
@@ -89,17 +94,23 @@ component =
   render :: State -> H.ComponentHTML Action Slots m
   render state = 
     let 
+        menuElem attrs text = HH.li attrs [ HH.text text]
+
+        topMenu = HH.div [ HP.id_ "bar-menu" ] [
+          HH.ul [] [menuElem [HE.onClick \_ -> Just UserCreatedGroup] "+", menuElem [] "-"]
+        ]
+
         barListGroup = HH.div [ HP.id_ "bar-list" ] [HH.ul [ HP.id_ "bar-list-group"] $ 
           (M.toUnfoldable state.groups) <#> \(Tuple gid g) -> renderGroup gid (gid == state.currentGroup) g
         ]
 
-        tabsDivs = (toUnfoldable $ (M.keys state.groups)) <#> 
+        tabsDivs = (S.toUnfoldable $ (M.keys state.groups)) <#> 
           (\gid -> HH.div [
             HP.classes [(H.ClassName "bar-tabs"), whenC (gid == state.currentGroup) (H.ClassName "bar-tabs-active")] 
           ] [renderGroupTabs gid])
     
      in
-        HH.div [ HP.id_ "bar" ] $ A.cons barListGroup tabsDivs 
+        HH.div [ HP.id_ "bar" ] $ topMenu : barListGroup : tabsDivs 
 
   renderGroupTabs :: GroupId -> H.ComponentHTML Action Slots m
   renderGroupTabs groupId = HH.slot _tab groupId Tabs.component unit (Just <<< (HandleTabsOutput groupId))
@@ -117,8 +128,15 @@ component =
          UserSelectedGroup gid -> H.modify_ _ { currentGroup = gid }
          UserRenameGroup gid newName -> 
             H.modify_ \s -> s { groups = M.update (\g -> Just $ g { name = newName }) gid s.groups }
-         HandleTabsOutput gid event -> case event of
-                                            TabsSidebarAction sbEvent -> H.raise sbEvent
+         UserCreatedGroup -> do
+           H.modify_ \s -> s { groups = M.insert (findNextGroupId $ M.keys s.groups) { name: "new group", pos: M.size s.groups } s.groups }
+         HandleTabsOutput gid (TabsSidebarAction sbEvent) -> H.raise sbEvent
+
+    where
+          findNextGroupId :: S.Set GroupId -> GroupId
+          findNextGroupId values = 
+            let GroupId(maxValue) = NES.max (NES.cons (GroupId 0) values)
+             in GroupId(maxValue + 1)
 
   handleQuery :: forall act o a. Tabs.Query a -> H.HalogenM State act Slots o m (Maybe a)
   handleQuery = case _ of
