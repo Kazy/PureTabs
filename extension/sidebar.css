@@ -52,7 +52,7 @@ body,
 
 
 .bar-tabs {
-  width: 100%;
+  width: calc(100% - var(--group-bar-size));
   height: 100%;
   margin-left: var(--group-bar-size);
 }
