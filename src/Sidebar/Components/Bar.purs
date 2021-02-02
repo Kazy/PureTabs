@@ -13,7 +13,9 @@ import Data.Tuple (Tuple(..))
 import Data.Unit (Unit, unit)
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (class MonadEffect)
+import Halogen (ComponentHTML)
 import Halogen as H
+import Halogen.HTML (slot)
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
@@ -21,7 +23,9 @@ import Prelude (class Eq, class Ord, (<<<), (==))
 import PureTabs.Model (SidebarEvent)
 import PureTabs.Sidebar.Tabs (Output(..))
 import PureTabs.Sidebar.Tabs as Tabs
+import Sidebar.Component.GroupName as GroupName
 import Sidebar.Utils (whenC)
+import Web.HTML.Event.EventTypes (offline)
 
 newtype GroupId
   = GroupId Int
@@ -43,6 +47,7 @@ type State
 
 data Action
   = UserSelectedGroup GroupId
+  | UserRenameGroup GroupId String
   | HandleTabsOutput GroupId Tabs.Output
 
 initialState :: forall i. i -> State
@@ -53,20 +58,19 @@ initialState _ =
     thirdGroupId = GroupId 2
   in
     { 
-      groups: M.fromFoldable [
-        Tuple firstGroupId { name: "main", pos: 0 }
-        -- , Tuple secondGroupId { name: "second", pos: 1}
-        -- , Tuple thirdGroupId { name: "third", pos: 2}
-      ], 
-      tabsToGroup: M.empty, 
-      currentGroup: firstGroupId 
+      groups: M.fromFoldable [ Tuple firstGroupId { name: "main", pos: 0 } ]
+      , tabsToGroup: M.empty
+      , currentGroup: firstGroupId 
     }
 
 type Slots
-  = ( tabs :: H.Slot Tabs.Query Tabs.Output GroupId )
+  = ( tab :: H.Slot Tabs.Query Tabs.Output GroupId, groupName :: forall unusedQuery. H.Slot unusedQuery GroupName.NewName GroupId)
 
-_childLabel :: SProxy "tabs"
-_childLabel = (SProxy :: _ "tabs")
+_tab :: SProxy "tab"
+_tab = (SProxy :: _ "tab")
+
+_groupName :: SProxy "groupName"
+_groupName = (SProxy :: _ "groupName")
 
 component :: forall i m. MonadEffect m => MonadAff m => H.Component HH.HTML Tabs.Query i SidebarEvent m
 component =
@@ -86,7 +90,8 @@ component =
   render state = 
     let 
         barListGroup = HH.div [ HP.id_ "bar-list" ] [HH.ul [ HP.id_ "bar-list-group"] $ 
-          (\(Tuple gid g) -> renderGroup gid (gid == state.currentGroup) g) <$> (M.toUnfoldable state.groups)]
+          (M.toUnfoldable state.groups) <#> \(Tuple gid g) -> renderGroup gid (gid == state.currentGroup) g
+        ]
 
         tabsDivs = (toUnfoldable $ (M.keys state.groups)) <#> 
           (\gid -> HH.div [
@@ -97,19 +102,21 @@ component =
         HH.div [ HP.id_ "bar" ] $ A.cons barListGroup tabsDivs 
 
   renderGroupTabs :: GroupId -> H.ComponentHTML Action Slots m
-  renderGroupTabs groupId = HH.slot _childLabel groupId Tabs.component unit (Just <<< (HandleTabsOutput groupId))
+  renderGroupTabs groupId = HH.slot _tab groupId Tabs.component unit (Just <<< (HandleTabsOutput groupId))
 
   renderGroup :: GroupId -> Boolean -> Group -> H.ComponentHTML Action Slots m
   renderGroup groupId isActive group =  
     HH.li [ 
-      HP.classes [(H.ClassName "group-name"), whenC isActive (H.ClassName "active-group")],
-      HE.onClick (\ev -> Just (UserSelectedGroup groupId))
-    ] [ HH.text group.name ] 
+      HP.classes [(H.ClassName "group-name"), whenC isActive (H.ClassName "active-group")]
+      , HE.onClick (\_ -> Just (UserSelectedGroup groupId))
+    ] [ HH.slot _groupName groupId GroupName.component group.name (\newName -> Just (UserRenameGroup groupId newName))] 
 
   handleAction :: Action -> H.HalogenM State Action Slots SidebarEvent m Unit
   handleAction = 
     case _ of
          UserSelectedGroup gid -> H.modify_ _ { currentGroup = gid }
+         UserRenameGroup gid newName -> 
+            H.modify_ \s -> s { groups = M.update (\g -> Just $ g { name = newName }) gid s.groups }
          HandleTabsOutput gid event -> case event of
                                             TabsSidebarAction sbEvent -> H.raise sbEvent
 
@@ -145,4 +152,4 @@ component =
 
     where
         tellChild :: GroupId -> (H.Tell Tabs.Query) -> H.HalogenM State act Slots o m (Maybe Unit)
-        tellChild gid q = H.query _childLabel gid $ H.tell q
+        tellChild gid q = H.query _tab gid $ H.tell q

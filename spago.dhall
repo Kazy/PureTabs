@@ -18,6 +18,7 @@ You can edit this file as you like.
   , "generics-rep"
   , "halogen"
   , "halogen-css"
+  , "halogen-hooks"
   , "lists"
   , "numbers"
   , "ordered-collections"
