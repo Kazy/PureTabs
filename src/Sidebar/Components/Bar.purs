@@ -5,6 +5,7 @@ import Control.Alternative (pure)
 import Control.Bind (bind, discard, void, (<#>))
 import Data.Array ((:))
 import Data.Function (($))
+import Data.Lens (view)
 import Data.Map as M
 import Data.Maybe (Maybe(..))
 import Data.Set (toUnfoldable, Set) as S
@@ -20,6 +21,7 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Prelude (class Eq, class Ord, class Show, show, (+), (<<<), (<>), (==))
 import PureTabs.Model.Events (SidebarEvent)
+import PureTabs.Model.GlobalState (_tabId)
 import PureTabs.Sidebar.Tabs (Output(..))
 import PureTabs.Sidebar.Tabs as Tabs
 import Sidebar.Component.GroupName as GroupName
@@ -137,37 +139,61 @@ component =
   -- TODO: don't use the current group, but use the group associated with the TabId
   handleQuery :: forall act o a. Tabs.Query a -> H.HalogenM State act Slots o m (Maybe a)
   handleQuery = case _ of
+
     Tabs.InitialTabList tabs a -> do
        s <- H.modify (\s -> 
          s { tabsToGroup = M.fromFoldable $ tabs <#> \(Tab t) -> Tuple t.id s.currentGroup }
        )
        void $ tellChild s.currentGroup $ Tabs.InitialTabList tabs
        pure (Just a)
-    Tabs.TabCreated (Tab t) a -> do 
-       s <- H.modify (\s -> s { tabsToGroup = M.insert t.id s.currentGroup  s.tabsToGroup })
-       void $ tellChild s.currentGroup $ Tabs.TabCreated (Tab t)
+
+    Tabs.TabCreated tab a -> do 
+       let tabId = view _tabId tab
+       s <- H.modify (\s -> s { tabsToGroup = M.insert tabId s.currentGroup  s.tabsToGroup })
+       doOnTabGroup tabId \_ -> do
+         void $ tellChild s.currentGroup $ Tabs.TabAttached tab
        pure (Just a)
+
     Tabs.TabDeleted tid a -> do 
-       s <- H.modify (\s -> s { tabsToGroup = M.delete tid s.tabsToGroup })
-       void $ tellChild s.currentGroup $ Tabs.TabDeleted tid
+       doOnTabGroup tid \_ -> do 
+         s <- H.modify (\s -> s { tabsToGroup = M.delete tid s.tabsToGroup })
+         void $ tellChild s.currentGroup $ Tabs.TabDeleted tid
        pure (Just a)
+
     Tabs.TabActivated oldTid tid a -> do 
-       s <- H.get
-       void $ tellChild s.currentGroup $ Tabs.TabActivated oldTid tid
+       doOnTabGroup tid \gid -> do 
+         s <- H.modify (_ { currentGroup = gid})
+         void $ tellChild s.currentGroup $ Tabs.TabActivated oldTid tid
        pure (Just a)
+
     Tabs.TabMoved tid prev next a -> do 
-       s <- H.get
-       void $ tellChild s.currentGroup $ Tabs.TabMoved tid prev next
+       doOnTabGroup tid \_ -> do 
+         s <- H.get
+         void $ tellChild s.currentGroup $ Tabs.TabMoved tid prev next
        pure (Just a)
+
     Tabs.TabInfoChanged tid cinfo a -> do 
-       s <- H.get
-       void $ tellChild s.currentGroup $ Tabs.TabInfoChanged tid cinfo
+       doOnTabGroup tid \_ -> do
+         s <- H.get
+         void $ tellChild s.currentGroup $ Tabs.TabInfoChanged tid cinfo
        pure (Just a)
+
     Tabs.TabDetached tid a -> do 
-       s <- H.get
-       void $ tellChild s.currentGroup $ Tabs.TabDetached tid
-       pure (Just a)
+       handleQuery $ Tabs.TabDeleted tid a
+
+    Tabs.TabAttached tab a -> do 
+       handleQuery $ Tabs.TabCreated tab a
 
     where
         tellChild :: GroupId -> (H.Tell Tabs.Query) -> H.HalogenM State act Slots o m (Maybe Unit)
         tellChild gid q = H.query _tab gid $ H.tell q
+
+        doOnTabGroup 
+          :: TabId 
+          -> (GroupId -> H.HalogenM State act Slots o m Unit) 
+          -> H.HalogenM State act Slots o m Unit
+        doOnTabGroup tabId f = do
+          { tabsToGroup } <- H.get
+          case M.lookup tabId tabsToGroup of 
+               Just groupId -> f groupId
+               Nothing -> pure unit

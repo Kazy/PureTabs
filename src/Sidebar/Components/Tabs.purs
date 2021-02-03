@@ -1,6 +1,6 @@
 module PureTabs.Sidebar.Tabs (component, Query(..), Output(..)) where
 
-import Browser.Tabs (Tab(..), TabId)
+import Browser.Tabs (Tab(..), TabId, showTabId)
 import Browser.Tabs.OnUpdated (ChangeInfo(..), ChangeInfoRec)
 import CSS.Background as CssBackground
 import Control.Alt ((<$>))
@@ -48,7 +48,7 @@ data Query a
   | TabMoved TabId Int Int a
   | TabInfoChanged TabId ChangeInfo a
   | TabDetached TabId a
-  -- | TabAttached Tab a
+  | TabAttached Tab a
 
 data Output 
   = TabsSidebarAction SidebarEvent
@@ -344,7 +344,7 @@ handleAction = case _ of
       Nothing -> pure unit
       Just prevIdx -> H.modify_ _ { tabHovered = Nothing }
 
-handleQuery :: forall act o m a. Query a -> H.HalogenM State act () o m (Maybe a)
+handleQuery :: forall act o m a. MonadEffect m => Query a -> H.HalogenM State act () o m (Maybe a)
 handleQuery = case _ of
 
   InitialTabList tabs a -> H.modify_ (\s -> s { tabs = tabs }) *> pure (Just a)
@@ -396,6 +396,10 @@ handleQuery = case _ of
 
   TabDetached tid a -> 
     handleQuery $ TabDeleted tid a
+
+  TabAttached tab a -> do
+    H.liftEffect (log $ "sb: tab attached " <> (showTabId tab))
+    handleQuery $ TabCreated tab a
 
 setTabActive :: Boolean -> Tab -> Tab
 setTabActive act (Tab t) = Tab (t { active = act })
