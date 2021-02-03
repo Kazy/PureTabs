@@ -1,25 +1,20 @@
 module PureTabs.Sidebar.Bar where
 
 import Browser.Tabs (Tab(..), TabId)
-import Control.Alternative (class Functor, pure, (<$>))
+import Control.Alternative (pure)
 import Control.Bind (bind, discard, void, (<#>))
 import Data.Array ((:))
-import Data.Array as A
 import Data.Function (($))
-import Data.Map (insert, size)
 import Data.Map as M
 import Data.Maybe (Maybe(..))
 import Data.Set (toUnfoldable, Set) as S
-import Data.Set.NonEmpty (max, NonEmptySet, cons) as NES
+import Data.Set.NonEmpty (cons, max) as NES
 import Data.Symbol (SProxy(..))
 import Data.Tuple (Tuple(..))
 import Data.Unit (Unit, unit)
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (class MonadEffect)
-import Effect.Class.Console (log)
-import Halogen (ComponentHTML, get, liftEffect)
 import Halogen as H
-import Halogen.HTML (slot)
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
@@ -29,7 +24,6 @@ import PureTabs.Sidebar.Tabs (Output(..))
 import PureTabs.Sidebar.Tabs as Tabs
 import Sidebar.Component.GroupName as GroupName
 import Sidebar.Utils (whenC)
-import Web.HTML.Event.EventTypes (offline)
 
 newtype GroupId
   = GroupId Int
@@ -55,6 +49,7 @@ data Action
   = UserSelectedGroup GroupId
   | UserRenameGroup GroupId String
   | UserCreatedGroup
+  | UserDeletedGroup GroupId
   | HandleTabsOutput GroupId Tabs.Output
 
 initialState :: forall i. i -> State
@@ -130,6 +125,7 @@ component =
             H.modify_ \s -> s { groups = M.update (\g -> Just $ g { name = newName }) gid s.groups }
          UserCreatedGroup -> do
            H.modify_ \s -> s { groups = M.insert (findNextGroupId $ M.keys s.groups) { name: "new group", pos: M.size s.groups } s.groups }
+         UserDeletedGroup gid -> pure unit
          HandleTabsOutput gid (TabsSidebarAction sbEvent) -> H.raise sbEvent
 
     where

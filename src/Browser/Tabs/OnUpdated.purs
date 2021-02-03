@@ -1,6 +1,6 @@
 module Browser.Tabs.OnUpdated where
 
-import Browser.Tabs (Tab(..), TabId(..))
+import Browser.Tabs (Tab, TabId)
 import Browser.Utils (Listener3, UnregisteredListener3, mkListenerThree, unwrapForeign)
 import Control.Alternative (pure)
 import Control.Bind ((>>=))

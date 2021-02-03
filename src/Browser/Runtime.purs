@@ -2,10 +2,8 @@ module Browser.Runtime (Port, connect, onConnectAddListener, portOnDisconnect, p
 
 import Browser.Utils (mkListenerOne, Listener, UnregisteredListener)
 import Control.Alt (map)
-import Control.Bind ((=<<))
 import Control.Monad.Except (runExcept)
 import Data.Array (intercalate)
-import Data.Bifunctor (lmap)
 import Data.Either (Either(..))
 import Data.Eq (class Eq)
 import Data.Generic.Rep (class Generic)
