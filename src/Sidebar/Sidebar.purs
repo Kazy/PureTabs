@@ -18,7 +18,7 @@ import Halogen as H
 import Halogen.Aff as HA
 import Halogen.VDom.Driver (runUI)
 import Prelude (bind, discard)
-import PureTabs.Model (BackgroundEvent(..), SidebarEvent(..))
+import PureTabs.Model.Events (BackgroundEvent(..), SidebarEvent(..))
 import PureTabs.Sidebar.Bar as Bar
 import PureTabs.Sidebar.Tabs as Tabs
 import Web.DOM.ParentNode (QuerySelector(..))
@@ -62,6 +62,9 @@ onBackgroundMsgConsumer query =
           pure Nothing
         BgTabUpdated tabId cinfo tab -> do
           void $ query $ H.tell $ Tabs.TabInfoChanged tabId cinfo
+          pure Nothing
+        BgTabDetached tabId -> do 
+          void $ query $ H.tell $ Tabs.TabDetached tabId
           pure Nothing
         _ -> pure Nothing
 

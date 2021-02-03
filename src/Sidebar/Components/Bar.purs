@@ -19,7 +19,7 @@ import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Prelude (class Eq, class Ord, class Show, show, (+), (<<<), (<>), (==))
-import PureTabs.Model (SidebarEvent)
+import PureTabs.Model.Events (SidebarEvent)
 import PureTabs.Sidebar.Tabs (Output(..))
 import PureTabs.Sidebar.Tabs as Tabs
 import Sidebar.Component.GroupName as GroupName
@@ -134,13 +134,13 @@ component =
             let GroupId(maxValue) = NES.max (NES.cons (GroupId 0) values)
              in GroupId(maxValue + 1)
 
+  -- TODO: don't use the current group, but use the group associated with the TabId
   handleQuery :: forall act o a. Tabs.Query a -> H.HalogenM State act Slots o m (Maybe a)
   handleQuery = case _ of
-    -- select the current group
-    -- associate all the tab id to the current group
-    -- send an action to the corresponding slot
     Tabs.InitialTabList tabs a -> do
-       s <- H.modify (\s -> s { tabsToGroup = M.fromFoldable $ tabs <#> \(Tab t) -> Tuple t.id s.currentGroup })
+       s <- H.modify (\s -> 
+         s { tabsToGroup = M.fromFoldable $ tabs <#> \(Tab t) -> Tuple t.id s.currentGroup }
+       )
        void $ tellChild s.currentGroup $ Tabs.InitialTabList tabs
        pure (Just a)
     Tabs.TabCreated (Tab t) a -> do 
@@ -162,6 +162,10 @@ component =
     Tabs.TabInfoChanged tid cinfo a -> do 
        s <- H.get
        void $ tellChild s.currentGroup $ Tabs.TabInfoChanged tid cinfo
+       pure (Just a)
+    Tabs.TabDetached tid a -> do 
+       s <- H.get
+       void $ tellChild s.currentGroup $ Tabs.TabDetached tid
        pure (Just a)
 
     where

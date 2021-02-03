@@ -4,13 +4,13 @@ exports.queryImpl = function () {
   return browser.tabs.query({});
 };
 
-exports["remove'"] = function (tabs) {
+exports["browserRemove'"] = function (tabs) {
   return function () {
     return browser.tabs.remove(tabs);
   };
 };
 
-exports["update'"] = function () {
+exports["browserUpdate'"] = function () {
   return function (updateProperties) {
     return function (tabId) {
       return function () {
@@ -20,7 +20,7 @@ exports["update'"] = function () {
   };
 };
 
-exports["moveTab"] = function (tabIds) {
+exports["browserMoveTab"] = function (tabIds) {
   return function (moveProperties) {
     return function () {
       return browser.tabs.move(tabIds, moveProperties);
@@ -28,7 +28,7 @@ exports["moveTab"] = function (tabIds) {
   };
 };
 
-exports["createTab"] = function (union) {
+exports["browserCreateTab"] = function (union) {
   return function (createProperties) {
     return function () {
       return browser.tabs.create(createProperties);

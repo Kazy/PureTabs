@@ -32,7 +32,8 @@ import Halogen.HTML.CSS as CSS
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Prelude (negate, sub)
-import PureTabs.Model (SidebarEvent(..), _tabs)
+import PureTabs.Model.Events (SidebarEvent(..))
+import PureTabs.Model.GlobalState (_tabs)
 import Web.Event.Event (Event)
 import Web.Event.Event as Event
 import Web.HTML.Event.DataTransfer as DT
@@ -46,6 +47,8 @@ data Query a
   | TabActivated (Maybe TabId) TabId a
   | TabMoved TabId Int Int a
   | TabInfoChanged TabId ChangeInfo a
+  | TabDetached TabId a
+  -- | TabAttached Tab a
 
 data Output 
   = TabsSidebarAction SidebarEvent
@@ -390,6 +393,9 @@ handleQuery = case _ of
                 $ (findIndexTabId tid >=> \index -> A.modifyAt index (updateTabFromInfo cinfo) tabs) tabs
       )
       *> pure (Just a)
+
+  TabDetached tid a -> 
+    handleQuery $ TabDeleted tid a
 
 setTabActive :: Boolean -> Tab -> Tab
 setTabActive act (Tab t) = Tab (t { active = act })

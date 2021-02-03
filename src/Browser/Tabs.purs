@@ -1,4 +1,18 @@
-module Browser.Tabs (WindowId, TabId(..), Tab(..), MoveProperties, CreateProperties, query, remove, removeOne, update, activateTab, moveTab, createTab) where
+module Browser.Tabs (
+  WindowId
+  , TabId(..)
+  , Tab(..)
+  , MoveProperties
+  , CreateProperties
+  , browserQuery
+  , browserRemove
+  , browserRemoveOne
+  , browserUpdate
+  , browserActivateTab
+  , browserMoveTab
+  , browserCreateTab
+  , showTabId
+  ) where
 
 import Browser.Utils (unwrapForeign)
 import Control.Alt (map)
@@ -12,7 +26,7 @@ import Data.Maybe (Maybe)
 import Data.Newtype (class Newtype)
 import Data.Number.Format (toString)
 import Data.Ord (class Ord)
-import Data.Show (class Show)
+import Data.Show (class Show, show)
 import Data.Traversable (traverse)
 import Data.Unit (Unit)
 import Effect (Effect)
@@ -49,7 +63,7 @@ derive instance eqTabId :: Eq TabId
 
 derive instance ordTabId :: Ord TabId
 
-instance showTabId :: Show TabId where
+instance showTabIdInstance :: Show TabId where
   show (TabId wid) = toString wid
 
 derive instance genTabId :: Generic TabId _
@@ -97,6 +111,9 @@ derive instance genTab :: Generic Tab _
 instance showTab :: Show Tab where
   show = genericShow
 
+showTabId :: Tab -> String
+showTabId (Tab t) = show t.id
+
 instance encodeTab :: Encode Tab where
   encode x = genericEncode (defaultOptions { unwrapSingleConstructors = true }) x
 
@@ -105,27 +122,27 @@ instance decodeTab :: Decode Tab where
 
 foreign import queryImpl :: Effect (Promise (Array Foreign))
 
-query :: Aff (List Tab)
-query = do
+browserQuery :: Aff (List Tab)
+browserQuery = do
   tabsArray <- toAffE queryImpl
   let
     tabsList = fromFoldable tabsArray
   parsed <- liftEffect $ traverse unwrapForeign tabsList
   pure parsed
 
-foreign import remove' :: (Array Number) -> Effect (Promise Unit)
+foreign import browserRemove' :: (Array Number) -> Effect (Promise Unit)
 
-remove :: (List TabId) -> Aff Unit
-remove tabs =
+browserRemove :: (List TabId) -> Aff Unit
+browserRemove tabs =
   let
     tabIdsArray = toUnfoldable $ map unwrap tabs
   in
-    toAffE $ remove' tabIdsArray
+    toAffE $ browserRemove' tabIdsArray
   where
   unwrap (TabId n) = n
 
-removeOne :: TabId -> Aff Unit
-removeOne tabId = remove (singleton tabId)
+browserRemoveOne :: TabId -> Aff Unit
+browserRemoveOne tabId = browserRemove (singleton tabId)
 
 type RowUpdateProperties
   = ( active :: Boolean
@@ -139,21 +156,21 @@ type RowUpdateProperties
     , url :: String
     )
 
-foreign import update' :: forall given trash. Union given trash RowUpdateProperties => { | given } -> TabId -> Effect (Promise Tab)
+foreign import browserUpdate' :: forall given trash. Union given trash RowUpdateProperties => { | given } -> TabId -> Effect (Promise Tab)
 
-update :: forall prop b. Union prop b RowUpdateProperties => { | prop } -> TabId -> Aff Tab
-update props tabId = toAffE $ update' props tabId
+browserUpdate :: forall prop b. Union prop b RowUpdateProperties => { | prop } -> TabId -> Aff Tab
+browserUpdate props tabId = toAffE $ browserUpdate' props tabId
 
 
-activateTab :: TabId -> Aff Tab
-activateTab tabId = update { active: true } tabId
+browserActivateTab :: TabId -> Aff Tab
+browserActivateTab tabId = browserUpdate { active: true } tabId
 
 type MoveProperties = {
   -- windowId :: Maybe WindowId
   index :: Int
 }
 
-foreign import moveTab :: TabId -> MoveProperties -> Effect Unit
+foreign import browserMoveTab :: TabId -> MoveProperties -> Effect Unit
 
 
 type CreateProperties = (
@@ -169,4 +186,4 @@ type CreateProperties = (
   windowId :: WindowId
 )
 
-foreign import createTab :: forall props trash. Union props trash CreateProperties => { | props } -> Effect Unit
+foreign import browserCreateTab :: forall props trash. Union props trash CreateProperties => { | props } -> Effect Unit
