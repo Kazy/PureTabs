@@ -14,7 +14,9 @@ maintainable way. Any criticism is welcome.
 - [x] Add delete button
 - [x] Tab selection
 - [x] Moving a tab
-- [ ] Detaching a tab
+- [ ] Detaching a tab:
+  - [x] Using Firefox's tabs
+  - [ ] Drag and dropping using PureTabs directly.
 - [ ] Actually show tabs as a tree
 - [ ] Session save/import
 - [ ] Tab groups
