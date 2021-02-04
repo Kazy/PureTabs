@@ -151,7 +151,7 @@ component =
        let tabId = view _tabId tab
        s <- H.modify (\s -> s { tabsToGroup = M.insert tabId s.currentGroup  s.tabsToGroup })
        doOnTabGroup tabId \_ -> do
-         void $ tellChild s.currentGroup $ Tabs.TabAttached tab
+         void $ tellChild s.currentGroup $ Tabs.TabCreated tab
        pure (Just a)
 
     Tabs.TabDeleted tid a -> do 
