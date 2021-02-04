@@ -1,8 +1,6 @@
 module PureTabs.Model.GlobalState (
  ExtWindow
   , GlobalState
-  , Group
-  , GroupId
   , _active
   , _id
   , _index
@@ -77,22 +75,10 @@ initialGlobalState =
   , detached: Nothing
   }
 
-newtype GroupId
-  = GroupId Int
-
-type Group
-  = { id :: GroupId, name :: String }
-
-newGroup :: Int -> (Maybe String) -> Group
-newGroup gid name = { id: GroupId gid, name: fromMaybe "Unnamed" name }
-
 type ExtWindow
   = { positions :: Array TabId
     , tabs :: M.Map TabId Tab
     , port :: Maybe Port
-    , groups :: Array Group
-    , tabToGroup :: M.Map TabId GroupId
-    , currentGroup :: GroupId
     }
 
 emptyWindow :: ExtWindow
@@ -100,9 +86,6 @@ emptyWindow =
   { positions: A.empty
   , tabs: M.empty
   , port: Nothing
-  , groups: A.singleton (newGroup 1 Nothing)
-  , tabToGroup: M.empty
-  , currentGroup: GroupId 1
   }
 
 _tabs :: forall a r. Lens' { tabs :: a | r } a
@@ -197,9 +180,6 @@ initialTabListToGlobalState tabs = { windows: windows, detached: Nothing }
         { tabs: M.fromFoldable $ tabs' <#> \(Tab t) -> Tuple t.id (Tab t)
         , port: Nothing
         , positions: (\(Tab t) -> t.id) <$> A.sortBy (compare `on` \(Tab t) -> t.index) (A.fromFoldable tabs')
-        , groups: A.singleton (newGroup 1 Nothing)
-        , tabToGroup: M.fromFoldable $ tabs' <#> \(Tab t) -> Tuple t.id (GroupId 1)
-        , currentGroup: GroupId 0
         }
     in
       Tuple windowId window
