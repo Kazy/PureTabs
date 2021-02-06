@@ -11,6 +11,7 @@ module PureTabs.Model.GlobalState (
   , _tabFromTabIdAndWindow
   , _tabFromWindow
   , _tabId
+  , _tabIndex
   , _tabs
   , _tabWindowId
   , _windowIdToWindow
@@ -40,7 +41,7 @@ import Control.Alt ((<|>))
 import Control.Bind (join, bind, (>>=))
 import Control.Category (identity, (<<<), (>>>))
 import Control.Plus (empty) as A
-import Data.Array (sortBy, singleton, fromFoldable, insertAt, deleteAt, mapWithIndex, foldl, filter, (!!)) as A
+import Data.Array (deleteAt, filter, foldl, fromFoldable, insertAt, mapWithIndex, sortBy, (!!)) as A
 import Data.Eq ((==), (/=))
 import Data.Function (const, on, ($))
 import Data.Functor (map, (<#>), (<$>))
@@ -100,20 +101,23 @@ _windows = prop (SProxy :: _ "windows")
 _title :: forall a r. Lens' { title :: a | r } a
 _title = prop (SProxy :: _ "title")
 
+_tabTitle :: Lens' Tab String
+_tabTitle = _Newtype <<< _title
+
 _index :: forall a r. Lens' { index :: a | r } a
 _index = prop (SProxy :: _ "index")
 
-_tabTitle :: Lens' Tab String
-_tabTitle = _Newtype <<< _title
+_tabIndex :: Lens' Tab Int
+_tabIndex = _Newtype <<< _index
 
 _id :: forall a r. Lens' { id :: a | r } a
 _id = prop (SProxy :: _ "id")
 
-_active :: forall a r. Lens' { active :: a | r } a
-_active = prop (SProxy :: _ "active")
-
 _tabId :: Lens' Tab TabId
 _tabId = _Newtype <<< _id
+
+_active :: forall a r. Lens' { active :: a | r } a
+_active = prop (SProxy :: _ "active")
 
 _windowId :: forall a r. Lens' { windowId :: a | r } a
 _windowId = prop (SProxy :: _ "windowId")

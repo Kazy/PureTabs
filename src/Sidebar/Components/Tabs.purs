@@ -7,7 +7,7 @@ import Control.Alt ((<$>))
 import Control.Alternative (empty, pure, (*>))
 import Control.Bind (bind, discard, (>=>), (>>=))
 import Control.Category (identity, (<<<), (>>>))
-import Data.Array (mapWithIndex, catMaybes, deleteAt, filter, findIndex, head, insertAt, modifyAt, (!!), length) as A
+import Data.Array (catMaybes, deleteAt, filter, findIndex, head, insertAt, length, mapWithIndex, modifyAt) as A
 import Data.Eq ((/=), (==))
 import Data.Function (flip, ($))
 import Data.Lens (over)
@@ -34,6 +34,7 @@ import Halogen.HTML.Properties as HP
 import Prelude (negate, sub)
 import PureTabs.Model.Events (SidebarEvent(..))
 import PureTabs.Model.GlobalState (_tabs)
+import Sidebar.Utils (moveElem)
 import Web.Event.Event (Event)
 import Web.Event.Event as Event
 import Web.HTML.Event.DataTransfer as DT
@@ -45,10 +46,11 @@ data Query a
   | TabCreated Tab a
   | TabDeleted TabId a
   | TabActivated (Maybe TabId) TabId a
-  | TabMoved TabId Int Int a
+  | TabMoved TabId Int a
   | TabInfoChanged TabId ChangeInfo a
   | TabDetached TabId a
   | TabAttached Tab a
+  | TabDeactivated TabId a
 
 data Output 
   = TabsSidebarAction SidebarEvent
@@ -104,7 +106,12 @@ component =
     }
 
 initialState :: forall i. i -> State
-initialState _ = { tabs: empty, selectedElem: Nothing, tabHovered: Nothing, leaveDebounce: Nothing }
+initialState _ = 
+  { tabs: empty
+  , selectedElem: Nothing
+  , tabHovered: Nothing
+  , leaveDebounce: Nothing 
+  }
 
 debounceTimeout :: Milliseconds -> AVar Unit -> Aff (Fiber Unit)
 debounceTimeout ms var =
@@ -369,30 +376,29 @@ handleQuery = case _ of
       )
       *> pure (Just a)
 
-  TabMoved tid prev next a -> do
-    state <- H.get
-    let
-      tab' = state.tabs A.!! prev
-    maybeFlipped tab' (pure unit) \tab -> do
-      H.modify_
-        ( over _tabs \tabs ->
-            fromMaybe tabs $ (A.deleteAt prev >=> A.insertAt next tab) tabs
-        )
-      -- Wait for a move to disable the drag data, otherwise the tab will come
-      -- back briefly to its original place before switching again.
-      -- This also means that if the move fail, this will be in an inconsistant
-      -- state.
-      H.modify_ \s -> s { selectedElem = Nothing }
+  TabMoved tid next a -> do
+    H.modify_ \s -> 
+       let 
+           newTabs = do 
+              tabPosition <- A.findIndex (\(Tab t) -> t.id == tid) s.tabs
+              moveElem tabPosition next s.tabs
+        in 
+          -- Regarding `selectedElem = Nothing`:
+          -- Wait for a move to disable the drag data, otherwise the tab will come
+          -- back briefly to its original place before switching again.
+          -- This also means that if the move fail, this will be in an inconsistant
+          -- state.
+          s { tabs = fromMaybe s.tabs newTabs, selectedElem = Nothing}
     pure (Just a)
 
-  TabInfoChanged tid cinfo a ->
+  TabInfoChanged tid cinfo a -> do
     H.modify_
       ( over _tabs
           $ \tabs ->
               fromMaybe tabs
                 $ (findIndexTabId tid >=> \index -> A.modifyAt index (updateTabFromInfo cinfo) tabs) tabs
       )
-      *> pure (Just a)
+    pure (Just a)
 
   TabDetached tid a -> 
     handleQuery $ TabDeleted tid a
@@ -400,6 +406,18 @@ handleQuery = case _ of
   TabAttached tab a -> do
     H.liftEffect (log $ "sb: tab attached " <> (showTabId tab))
     handleQuery $ TabCreated tab a
+
+  TabDeactivated tid a -> do
+    H.modify_ \s ->
+      let 
+        updateTab tabs = do 
+          idx <- findIndexTabId tid tabs 
+          A.modifyAt idx (setTabActive false) tabs
+       in
+        s { tabs = fromMaybe s.tabs $ updateTab s.tabs }
+    pure (Just a)
+
+
 
 setTabActive :: Boolean -> Tab -> Tab
 setTabActive act (Tab t) = Tab (t { active = act })
@@ -415,9 +433,6 @@ findIndexTabId tid = A.findIndex \(Tab t) -> t.id == tid
 
 applyAtTabId :: TabId -> (Int -> Array Tab -> Maybe (Array Tab)) -> Array Tab -> Array Tab
 applyAtTabId tid f a = fromMaybe a $ findIndexTabId tid a >>= (flip f) a
-
-maybeFlipped :: forall a b. Maybe a -> b -> (a -> b) -> b
-maybeFlipped ma b f = maybe b f ma
 
 updateTabFromInfo :: ChangeInfo -> Tab -> Tab
 updateTabFromInfo (ChangeInfo cinfo) (Tab t) =
@@ -437,8 +452,3 @@ updateTabFromInfo (ChangeInfo cinfo) (Tab t) =
         >>> updateField { acc: _.favIconUrl, update: (\val -> _ { favIconUrl = Just val }) }
   in
     Tab (applyChange t)
-
-moveElem :: forall a. Int -> Int -> Array a -> Maybe (Array a)
-moveElem from to arr = do
-  elem <- arr A.!! from
-  (A.deleteAt from >=> A.insertAt to elem) arr

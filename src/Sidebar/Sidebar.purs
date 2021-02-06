@@ -59,7 +59,7 @@ onBackgroundMsgConsumer query =
           void $ query $ H.tell $ Tabs.TabActivated prev next
           pure Nothing
         BgTabMoved tabId prev next -> do
-          void $ query $ H.tell $ Tabs.TabMoved tabId prev next
+          void $ query $ H.tell $ Tabs.TabMoved tabId next
           pure Nothing
         BgTabUpdated tabId cinfo tab -> do
           void $ query $ H.tell $ Tabs.TabInfoChanged tabId cinfo
