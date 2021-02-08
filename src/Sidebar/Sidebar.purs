@@ -14,7 +14,6 @@ import Data.Unit (Unit, unit)
 import Effect (Effect)
 import Effect.Aff (Aff, error)
 import Effect.Class (liftEffect)
-import Effect.Class.Console (error) as Console
 import Halogen as H
 import Halogen.Aff as HA
 import Halogen.VDom.Driver (runUI)
@@ -70,9 +69,9 @@ onBackgroundMsgConsumer query =
         BgTabAttached tab -> do 
           void $ query $ H.tell $ Tabs.TabAttached tab
           pure Nothing
-        _ -> do 
-           H.liftEffect $ Console.error "sb(main): un-handled message"
-           pure Nothing
+        BgTabHighlighted -> pure Nothing
+        BgTabReplaced -> pure Nothing
+        BgTabZoomChanged -> pure Nothing
 
 onSidebarMsg :: Runtime.Port -> CR.Consumer SidebarEvent Aff Unit
 onSidebarMsg port =
