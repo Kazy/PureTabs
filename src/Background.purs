@@ -31,7 +31,7 @@ import Data.Monoid ((<>))
 import Data.Show (show)
 import Data.Unit (unit)
 import Effect (Effect)
-import Effect.Aff (Aff, launchAff_)
+import Effect.Aff (launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
 import Effect.Ref as Ref
@@ -48,12 +48,9 @@ type StateRef = Ref.Ref GS.GlobalState
 main :: Effect Unit
 main = do
   log "starting background"
-  launchAff_ runMain
-  where
-  runMain :: Aff Unit
-  runMain = do
-    allTabs <- BT.browserQuery
-    liftEffect $ initializeBackground =<< (Ref.new $ GS.initialTabListToGlobalState allTabs)
+  launchAff_ do
+     allTabs <- BT.browserQuery
+     liftEffect $ initializeBackground =<< (Ref.new $ GS.initialTabListToGlobalState allTabs)
 
 initializeBackground :: Ref.Ref GS.GlobalState -> Effect Unit
 initializeBackground ref = do
@@ -124,54 +121,56 @@ onTabAttached stateRef tid info = do
 
 onConnect :: StateRef -> Runtime.Port -> Effect Unit
 onConnect stateRef port = do
-  -- create a temporary listener ref that will only be held until the sidebar has sent its current window
+  -- Create a temporary listener ref that will only be held until the sidebar has sent its current window
   listenerRef <- Ref.new Nothing
   initialListener <-
     Runtime.onMessageJsonAddListener port $ windowListener
       $ onNewWindowId port stateRef listenerRef
-  -- XXX: is it possible a message arrive *before* this is executed ? 
-  -- theoretically yes, and this means this way of doing is unsafe, but it's
+  -- XXX: Is it possible a message arrives *before* this is executed ? 
+  -- Theoretically yes, and this means this way of doing is unsafe, but it's
   -- difficult for a handler to remove itself otherwise.
   Ref.write (Just initialListener) listenerRef
+
   where
+
   windowListener :: (WindowId -> Effect Unit) -> SidebarEvent -> Effect Unit
   windowListener callback msg = case msg of
     SbHasWindowId winId -> log ("bg: created winId " <> show winId) *> callback winId
     _ -> pure unit
 
 -- | Initialize the data and the listeners of a new window, and send the current window state.
-onNewWindowId ::
-  forall a.
-  Runtime.Port ->
-  StateRef ->
-  (Ref.Ref (Maybe (Listener a))) ->
-  WindowId -> Effect Unit
+onNewWindowId 
+  :: forall a. 
+   Runtime.Port 
+  -> StateRef 
+  -> (Ref.Ref (Maybe (Listener a)))
+  -> WindowId 
+  -> Effect Unit
 onNewWindowId port stateRef listenerRef winId = do
-  -- initial state of the current window
+  -- Initial state of the current window
   Ref.modify_ (GS.initializeWindowState winId port) stateRef
-  -- remove the previous onMessage listener
+
+  -- Remove the previous onMessage listener
   ogListener <- Ref.read listenerRef
   foldMap (\l -> Runtime.onMessageRemoveListener port l) ogListener
   Ref.write Nothing listenerRef
-  -- send initial tabs
+
+  -- Send initial tabs
   latestState <- Ref.read stateRef
-  maybe (pure unit)
-    ( \w -> do
-        Runtime.postMessageJson port
-          $ BgInitialTabList
-          $ A.fromFoldable
-          $ w.positions
-          <#> (flip M.lookup w.tabs)
-          # A.catMaybes
-    )
-    (M.lookup winId latestState.windows)
-  --  add the new onMessage listener
+  M.lookup winId latestState.windows # foldMap \w ->
+      Runtime.postMessageJson port
+      $ BgInitialTabList
+      $ A.fromFoldable
+      $ w.positions
+      <#> (flip M.lookup w.tabs)
+      # A.catMaybes
+    
+
+  --  Add the new onMessage listener
   sidebarListener <- Runtime.onMessageJsonAddListener port $ manageSidebar stateRef winId port
   onDisconnectListener <- mkListenerUnit $ onDisconnect stateRef winId sidebarListener
   Runtime.portOnDisconnect port onDisconnectListener
 
--- TODO don't pass the full ref, but only a set of function to manipulate/access 
--- the data required
 manageSidebar :: StateRef -> WindowId -> Runtime.Port -> SidebarEvent -> Effect Unit
 manageSidebar ref winId port = case _ of
 
@@ -194,6 +193,7 @@ manageSidebar ref winId port = case _ of
      let 
          allTabIds = M.keys $ view ((GS._windowIdToWindow winId) <<< GS._tabs) state
          tabIdsToHide = A.fromFoldable $ Set.difference allTabIds (Set.fromFoldable tabIds)
+
      BT.browserHideTabs tabIdsToHide
      BT.browserShowTabs tabIds
 
