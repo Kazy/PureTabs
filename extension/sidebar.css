@@ -63,6 +63,10 @@ body,
   border-left: solid #cfcfcf 1px;
 }
 
+#bar-list-group li:first-child {
+  border-right: solid #cfcfcf 1px;
+}
+
 .group-name {
   color: #f9f9f2;
 }
