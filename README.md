@@ -19,7 +19,7 @@ maintainable way. Any criticism is welcome.
   - [ ] Drag and dropping using PureTabs directly.
 - [ ] Actually show tabs as a tree
 - [ ] Session save/import
-- [ ] Tab groups
-- [ ] Tab hiding
+- [x] Tab groups
+- [x] Tab hiding
 - [ ] Tests
 - [ ] Package the extension
