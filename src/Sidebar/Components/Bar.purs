@@ -154,13 +154,12 @@ component =
                                   >>> (flip A.index) groupIndex
                                   >>> map T.fst
 
-                   maybe (pure unit) (\idx -> 
+                   newIndex # maybe (pure unit) \idx -> do
                      H.raise (SbMoveTab tid idx) 
-                     *> (H.liftEffect $ 
+                     H.liftEffect $ 
                        log $ "sb: asking to move tab id " <> (show tid) 
-                         <> " from " <> (show oldPosition) <> " to pos " <> (show idx) 
-                         <> " (group index: " <> (show groupIndex) <> ", gid: " <> (show gid) <> ")"
-                   )) newIndex
+                       <> " from " <> (show oldPosition) <> " to pos " <> (show idx) 
+                       <> " (group index: " <> (show groupIndex) <> ", gid: " <> (show gid) <> ")"
 
                 _ -> H.raise sbEvent
 
