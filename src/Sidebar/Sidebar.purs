@@ -70,7 +70,6 @@ onBackgroundMsgConsumer query =
           void $ query $ H.tell $ Tabs.TabAttached tab
           pure Nothing
         BgTabHighlighted -> pure Nothing
-        BgTabReplaced -> pure Nothing
         BgTabZoomChanged -> pure Nothing
 
 onSidebarMsg :: Runtime.Port -> CR.Consumer SidebarEvent Aff Unit
