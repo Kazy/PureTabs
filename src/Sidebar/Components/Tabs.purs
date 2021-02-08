@@ -4,13 +4,12 @@ import Browser.Tabs (Tab(..), TabId, showTabId)
 import Browser.Tabs.OnUpdated (ChangeInfo(..), ChangeInfoRec)
 import CSS.Background as CssBackground
 import Control.Alt ((<$>))
-import Control.Alternative (empty, pure, (*>))
+import Control.Alternative (empty, pure)
 import Control.Bind (bind, discard, (>=>), (>>=))
 import Control.Category (identity, (<<<), (>>>))
 import Data.Array (catMaybes, deleteAt, filter, findIndex, head, insertAt, length, mapWithIndex, modifyAt) as A
 import Data.Eq ((/=), (==))
 import Data.Function (flip, ($))
-import Data.Lens (over)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.MediaType.Common (textPlain)
 import Data.Monoid ((<>))
@@ -33,7 +32,6 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Prelude (negate, sub)
 import PureTabs.Model.Events (SidebarEvent(..))
-import PureTabs.Model.GlobalState (_tabs)
 import Sidebar.Utils (moveElem)
 import Web.Event.Event (Event)
 import Web.Event.Event as Event
@@ -373,19 +371,18 @@ handleAction = case _ of
 handleQuery :: forall act o m a. MonadEffect m => Query a -> H.HalogenM State act () o m (Maybe a)
 handleQuery = case _ of
 
-  InitialTabList tabs a -> H.modify_ (\s -> s { tabs = tabs }) *> pure (Just a)
+  InitialTabList tabs a -> do 
+     H.modify_ _ { tabs = tabs } 
+     pure (Just a)
 
-  TabCreated (Tab t) a ->
-    H.modify_
-      (over _tabs $ \tabs -> fromMaybe tabs $ A.insertAt t.index (Tab t) tabs)
-      *> pure (Just a)
+  TabCreated (Tab t) a -> do
+    H.modify_ \s ->
+      s { tabs = fromMaybe s.tabs $ A.insertAt t.index (Tab t) s.tabs}
+    pure (Just a)
 
-  TabDeleted tid a ->
-    H.modify_
-      ( over _tabs
-          $ applyAtTabId tid A.deleteAt
-      )
-      *> pure (Just a)
+  TabDeleted tid a -> do
+    H.modify_ \s -> s { tabs = applyAtTabId tid A.deleteAt s.tabs}
+    pure (Just a)
 
   TabActivated prevTid tid a -> do
     let 
@@ -410,12 +407,11 @@ handleQuery = case _ of
     pure (Just a)
 
   TabInfoChanged tid cinfo a -> do
-    H.modify_
-      ( over _tabs
-          $ \tabs ->
-              fromMaybe tabs
-                $ (findIndexTabId tid >=> \index -> A.modifyAt index (updateTabFromInfo cinfo) tabs) tabs
-      )
+    H.modify_ \s ->
+      s { tabs = 
+        fromMaybe s.tabs $
+          (findIndexTabId tid >=> \index -> A.modifyAt index (updateTabFromInfo cinfo) s.tabs) s.tabs
+        }
     pure (Just a)
 
   TabDetached tid a -> 
