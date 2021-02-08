@@ -39,6 +39,7 @@ data SidebarEvent
   | SbDeleteGroup
   | SbRenameGroup
   | SbHasWindowId WindowId
+  | SbSelectedGroup (Array TabId)
 
 derive instance genSidebarEvent :: Generic SidebarEvent _
 

@@ -35,3 +35,15 @@ exports["browserCreateTab"] = function (union) {
     };
   };
 };
+
+exports["browserHideTabs"] = function (tabIds) {
+  return function () {
+    return browser.tabs.hide(tabIds);
+  }
+}
+
+exports["browserShowTabs"] = function (tabIds) {
+  return function () {
+    return browser.tabs.show(tabIds);
+  }
+}

@@ -11,6 +11,8 @@ module Browser.Tabs (
   , browserActivateTab
   , browserMoveTab
   , browserCreateTab
+  , browserHideTabs
+  , browserShowTabs
   , showTabId
   ) where
 
@@ -187,3 +189,7 @@ type CreateProperties = (
 )
 
 foreign import browserCreateTab :: forall props trash. Union props trash CreateProperties => { | props } -> Effect Unit
+
+foreign import browserHideTabs :: Array TabId -> Effect Unit
+
+foreign import browserShowTabs :: Array TabId -> Effect Unit

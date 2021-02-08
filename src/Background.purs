@@ -25,6 +25,7 @@ import Data.Lens (_Just, set, view)
 import Data.Lens.At (at)
 import Data.List (List, foldMap)
 import Data.Map as M
+import Data.Set as Set
 import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid ((<>))
 import Data.Show (show)
@@ -36,7 +37,7 @@ import Effect.Console (log)
 import Effect.Ref as Ref
 import Prelude (Unit, bind, ($), discard, (<<<))
 import PureTabs.Model.Events (BackgroundEvent(..), SidebarEvent(..))
-import PureTabs.Model.GlobalState as GS 
+import PureTabs.Model.GlobalState as GS
 
 type Ports
   = Ref.Ref (List Runtime.Port)
@@ -173,9 +174,13 @@ onNewWindowId port stateRef listenerRef winId = do
 -- the data required
 manageSidebar :: StateRef -> WindowId -> Runtime.Port -> SidebarEvent -> Effect Unit
 manageSidebar ref winId port = case _ of
+
   SbDeleteTab tabId -> launchAff_ $ BT.browserRemoveOne tabId
+
   SbActivateTab tabId -> launchAff_ $ BT.browserActivateTab tabId
+
   SbMoveTab tabId newIndex -> BT.browserMoveTab tabId { index: newIndex }
+
   SbCreateTab tid' -> case tid' of
     Nothing -> BT.browserCreateTab { windowId: winId }
     Just tid ->
@@ -183,7 +188,21 @@ manageSidebar ref winId port = case _ of
         >>= \positions -> case A.elemIndex tid positions of
             Nothing -> BT.browserCreateTab { windowId: winId }
             Just idx -> BT.browserCreateTab { windowId: winId, index: idx + 1 }
-  _ -> pure unit
+
+  SbSelectedGroup tabIds -> do
+     state <- Ref.read ref
+     let 
+         allTabIds = M.keys $ view ((GS._windowIdToWindow winId) <<< GS._tabs) state
+         tabIdsToHide = A.fromFoldable $ Set.difference allTabIds (Set.fromFoldable tabIds)
+     BT.browserHideTabs tabIdsToHide
+     BT.browserShowTabs tabIds
+
+  SbDetacheTab -> pure unit
+  SbCreatedGroup -> pure unit
+  SbDeleteGroup -> pure unit
+  SbRenameGroup -> pure unit
+  SbHasWindowId winId' -> pure unit
+
 
 onDisconnect :: forall a. StateRef -> WindowId -> Listener a -> Effect Unit
 onDisconnect stateRef winId listener = Ref.modify_ (set (GS._windows <<< (at winId) <<< _Just <<< GS._port) Nothing) stateRef

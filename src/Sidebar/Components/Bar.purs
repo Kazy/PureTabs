@@ -2,7 +2,7 @@ module PureTabs.Sidebar.Bar where
 
 import Browser.Tabs (Tab(..), TabId)
 import Control.Alternative (pure)
-import Control.Bind (bind, discard, map, void, (*>), (<#>))
+import Control.Bind (bind, discard, map, void, (<#>))
 import Data.Array ((:))
 import Data.Array as A
 import Data.Function (($))
@@ -126,13 +126,20 @@ component =
   handleAction = 
     case _ of
 
-         UserSelectedGroup gid -> H.modify_ _ { currentGroup = gid }
+         UserSelectedGroup gid -> do
+            H.modify_ _ { currentGroup = gid }
 
          UserRenameGroup gid newName -> 
             H.modify_ \s -> s { groups = M.update (\g -> Just $ g { name = newName }) gid s.groups }
 
          UserCreatedGroup -> do
-           H.modify_ \s -> s { groups = M.insert (findNextGroupId $ M.keys s.groups) { name: "new group", pos: M.size s.groups } s.groups }
+           H.modify_ \s -> 
+             s { groups = 
+               M.insert 
+                 (findNextGroupId $ M.keys s.groups) 
+                 { name: "new group", pos: M.size s.groups } 
+                 s.groups 
+               }
 
          UserDeletedGroup gid -> pure unit
 
@@ -169,7 +176,7 @@ component =
             let GroupId(maxValue) = NES.max (NES.cons (GroupId 0) values)
              in GroupId(maxValue + 1)
 
-  handleQuery :: forall act o a. Tabs.Query a -> H.HalogenM State act Slots o m (Maybe a)
+  handleQuery :: forall act a. Tabs.Query a -> H.HalogenM State act Slots SidebarEvent m (Maybe a)
   handleQuery = case _ of
 
     Tabs.InitialTabList tabs a -> do
@@ -227,7 +234,8 @@ component =
                 void $ tellChild gid $ Tabs.TabActivated mPrevTid tid
             Nothing -> pure unit
        doOnTabGroup tid \gid -> do 
-         H.modify_ (_ { currentGroup = gid})
+         { tabsToGroup } <- H.modify (_ { currentGroup = gid})
+         H.raise $ SbSelectedGroup $ getTabIdsOfGroup gid tabsToGroup
          void $ tellChild gid $ Tabs.TabActivated prevTid' tid
        pure (Just a)
 
@@ -257,13 +265,13 @@ component =
        handleQuery $ Tabs.TabCreated tab a
 
     where
-        tellChild :: GroupId -> (H.Tell Tabs.Query) -> H.HalogenM State act Slots o m (Maybe Unit)
+        tellChild :: GroupId -> (H.Tell Tabs.Query) -> H.HalogenM State act Slots SidebarEvent m (Maybe Unit)
         tellChild gid q = H.query _tab gid $ H.tell q
 
         doOnTabGroup 
           :: TabId 
-          -> (GroupId -> H.HalogenM State act Slots o m Unit) 
-          -> H.HalogenM State act Slots o m Unit
+          -> (GroupId -> H.HalogenM State act Slots SidebarEvent m Unit) 
+          -> H.HalogenM State act Slots SidebarEvent m Unit
         doOnTabGroup tabId f = do
           { tabsToGroup } <- H.get
           case M.lookup tabId tabsToGroup of 
@@ -287,3 +295,12 @@ getPositionTab
   -> Array (Tuple TabId GroupId)
   -> Maybe Int
 getPositionTab tid gid arr = A.findIndex (\(Tuple tid' gid') -> tid' == tid && gid' == gid) arr
+
+getTabIdsOfGroup 
+  :: GroupId
+  -> M.Map TabId GroupId
+  -> Array TabId
+getTabIdsOfGroup gid =
+  M.toUnfoldable 
+  >>> A.filter (\(Tuple tid gid') -> gid' == gid)
+  >>> map T.fst
