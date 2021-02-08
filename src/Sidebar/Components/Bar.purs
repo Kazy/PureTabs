@@ -183,7 +183,9 @@ component =
          , groupTabsPositions = tabIdGroup
          }
        )
+       let activatedTab = tabs # A.filter (\(Tab t) -> t.active) >>> A.head
        void $ tellChild s.currentGroup $ Tabs.InitialTabList tabs
+       activatedTab # maybe (pure unit) \(Tab t) -> void $ tellChild s.currentGroup $ Tabs.TabActivated Nothing t.id
        pure (Just a)
 
     Tabs.TabCreated (Tab tab) a -> do 
@@ -220,10 +222,14 @@ component =
          void $ tellChild gid $ Tabs.TabDeleted tid
        pure (Just a)
 
-    Tabs.TabActivated oldTid tid a -> do 
+    Tabs.TabActivated prevTid' tid a -> do 
+       case prevTid' of
+            mPrevTid @ (Just prevTid) -> doOnTabGroup prevTid \gid -> 
+                void $ tellChild gid $ Tabs.TabActivated mPrevTid tid
+            Nothing -> pure unit
        doOnTabGroup tid \gid -> do 
          H.modify_ (_ { currentGroup = gid})
-         void $ tellChild gid $ Tabs.TabActivated oldTid tid
+         void $ tellChild gid $ Tabs.TabActivated prevTid' tid
        pure (Just a)
 
     Tabs.TabMoved tid next a -> do 
@@ -250,11 +256,6 @@ component =
 
     Tabs.TabAttached tab a -> do 
        handleQuery $ Tabs.TabCreated tab a
-
-    Tabs.TabDeactivated tid a -> do 
-       doOnTabGroup tid \gid -> do 
-          void $ tellChild gid $ Tabs.TabDeactivated tid
-       pure (Just a)
 
     where
         tellChild :: GroupId -> (H.Tell Tabs.Query) -> H.HalogenM State act Slots o m (Maybe Unit)

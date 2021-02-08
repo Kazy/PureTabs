@@ -50,7 +50,6 @@ data Query a
   | TabInfoChanged TabId ChangeInfo a
   | TabDetached TabId a
   | TabAttached Tab a
-  | TabDeactivated TabId a
 
 data Output 
   = TabsSidebarAction SidebarEvent
@@ -90,6 +89,32 @@ type State
     , selectedElem :: Maybe DraggedTab
     , tabHovered :: Maybe Int
     , leaveDebounce :: Maybe Debouncer
+    }
+
+type TabProperties
+  = { isActive :: Boolean
+    , isDiscarded :: Boolean
+    , isBeingDragged :: Boolean
+    , isHovered :: Boolean
+    }
+
+getTabProperties 
+  :: forall r.
+  Tab 
+  -> Int
+  -> { selectedElem :: Maybe DraggedTab, tabHovered :: Maybe Int | r }
+  -> TabProperties
+getTabProperties (Tab t) index props = 
+  let 
+      isBeingDragged = fromMaybe false $ do 
+        dt <- props.selectedElem
+        overIndex <- dt.overIndex
+        Just $ overIndex == index
+   in
+    { isActive: t.active
+    , isDiscarded: fromMaybe false t.discarded
+    , isBeingDragged: isBeingDragged
+    , isHovered: maybe false ((==) index) props.tabHovered
     }
 
 component :: forall i m. MonadEffect m => MonadAff m => H.Component HH.HTML Query i Output m
@@ -154,7 +179,9 @@ render state =
           , HE.onDragOver \evt -> Just $ PreventPropagation $ DE.toEvent evt
           , HE.onDragLeave \evt -> Just $ TabDragLeave evt
           ]
-          (A.mapWithIndex (\idx tab -> renderTab idx (idx == currentOverIndex) tab) tabs)
+          (A.mapWithIndex (\idx tab -> 
+            renderTab idx (getTabProperties tab idx state) tab
+          ) tabs)
       ]
 
   where
@@ -165,8 +192,8 @@ render state =
     HH.div [HP.class_ (H.ClassName "three-dot-bounce-3")] []
     ]
 
-  renderTab :: Int -> Boolean -> Tab -> H.ComponentHTML Action () m
-  renderTab index isBeingDragged (Tab t) =
+  renderTab :: Int -> TabProperties -> Tab -> H.ComponentHTML Action () m
+  renderTab index props (Tab t) =
     HH.div
       [ HP.id_ $ show t.id
       , HP.draggable true
@@ -188,13 +215,10 @@ render state =
       , HP.classes $ H.ClassName
           <$> A.catMaybes
               [ Just "tab"
-              , if t.active then Just "active" else Nothing
-              , if isDiscarded t then Just "discarded" else Nothing
-              , if isBeingDragged then Just "being-dragged" else Nothing
-              , case state.tabHovered of
-                  Just idx
-                    | idx == index -> Just "hover"
-                  _ -> Nothing
+              , if props.isActive then Just "active" else Nothing
+              , if props.isDiscarded then Just "discarded" else Nothing
+              , if props.isBeingDragged then Just "being-dragged" else Nothing
+              , if props.isHovered then Just "hover" else Nothing
               ]
       , HP.title t.title
       ] [
@@ -220,11 +244,6 @@ render state =
           case favicon' of
             Nothing -> pure unit
             Just favicon -> CssBackground.backgroundImage $ CssBackground.url favicon
-
-  isDiscarded :: forall r. { discarded :: Maybe Boolean | r } -> Boolean
-  isDiscarded { discarded: Just true } = true
-
-  isDiscarded _ = false
 
 cancelLeaveDebounce :: forall m. MonadAff m => State -> H.HalogenM State Action () Output m Unit
 cancelLeaveDebounce state = case state.leaveDebounce of
@@ -368,13 +387,12 @@ handleQuery = case _ of
       )
       *> pure (Just a)
 
-  TabActivated oldTid tid a ->
-    H.modify_
-      ( over _tabs
-          $ maybe identity (\old -> applyAtTabId old $ setTabActiveAtIndex false) oldTid
+  TabActivated prevTid tid a -> do
+    let 
+      updateTabs = maybe identity (\old -> applyAtTabId old $ setTabActiveAtIndex false) prevTid
           >>> applyAtTabId tid (setTabActiveAtIndex true)
-      )
-      *> pure (Just a)
+    H.modify_ \s -> s { tabs = updateTabs s.tabs }
+    pure (Just a)
 
   TabMoved tid next a -> do
     H.modify_ \s -> 
@@ -406,16 +424,6 @@ handleQuery = case _ of
   TabAttached tab a -> do
     H.liftEffect (log $ "sb: tab attached " <> (showTabId tab))
     handleQuery $ TabCreated tab a
-
-  TabDeactivated tid a -> do
-    H.modify_ \s ->
-      let 
-        updateTab tabs = do 
-          idx <- findIndexTabId tid tabs 
-          A.modifyAt idx (setTabActive false) tabs
-       in
-        s { tabs = fromMaybe s.tabs $ updateTab s.tabs }
-    pure (Just a)
 
 
 
