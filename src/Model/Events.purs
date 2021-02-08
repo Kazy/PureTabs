@@ -20,8 +20,6 @@ data BackgroundEvent
   | BgTabActivated (Maybe TabId) TabId
   | BgTabAttached Tab
   | BgTabDetached TabId
-  | BgTabHighlighted
-  | BgTabZoomChanged
 
 derive instance genBackgroundEvent :: Generic BackgroundEvent _
 
