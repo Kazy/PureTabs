@@ -1,6 +1,8 @@
 module PureTabs.Sidebar where
 
 import Browser.Runtime as Runtime
+import Browser.Tabs (Tab(..))
+import Browser.Tabs.OnUpdated (ChangeInfo(..))
 import Browser.Windows (getCurrent)
 import Control.Alt (void)
 import Control.Alternative (pure)
@@ -45,30 +47,71 @@ onBackgroundMsgConsumer :: (forall a. Tabs.Query a -> Aff (Maybe a)) -> CR.Consu
 onBackgroundMsgConsumer query =
   CR.consumer
     $ case _ of
+
         BgInitialTabList tabs -> do
           void $ query $ H.tell $ Tabs.InitialTabList tabs
           pure Nothing
+
         BgTabCreated tab -> do
           void $ query $ H.tell $ Tabs.TabCreated tab
           pure Nothing
+
         BgTabDeleted tabId -> do
           void $ query $ H.request $ Tabs.TabDeleted tabId
           pure Nothing
+
         BgTabActivated prev next -> do
           void $ query $ H.tell $ Tabs.TabActivated prev next
           pure Nothing
+
         BgTabMoved tabId prev next -> do
           void $ query $ H.tell $ Tabs.TabMoved tabId next
           pure Nothing
+
         BgTabUpdated tabId cinfo tab -> do
-          void $ query $ H.tell $ Tabs.TabInfoChanged tabId cinfo
+          void $ query $ H.tell $ Tabs.TabInfoChanged tabId $ fillChangeInfoIfEmpty tab cinfo
           pure Nothing
+
         BgTabDetached tabId -> do 
           void $ query $ H.tell $ Tabs.TabDetached tabId
           pure Nothing
+
         BgTabAttached tab -> do 
           void $ query $ H.tell $ Tabs.TabAttached tab
           pure Nothing
+
+-- | Workaround for https://bugzilla.mozilla.org/show_bug.cgi?id=1640112
+-- | In case the ChangeInfo only contains an update for the status field to "complete",
+-- | we generate a new one with all the information from the tab.
+-- | It seems necessary because when restoring a session, the first tab we're in
+-- | won't get the proper tab information in the ChangeInfo structure, and will be stuck
+-- | with the "Restore Session" title and its corresponding favicon.
+fillChangeInfoIfEmpty :: Tab -> ChangeInfo -> ChangeInfo
+fillChangeInfoIfEmpty (Tab tab) = 
+  case _ of 
+      ChangeInfo { attention: Nothing
+                 , audible: Nothing
+                 , discarded: Nothing
+                 , favIconUrl: Nothing
+                 , hidden: Nothing
+                 , isArticle: Nothing
+                 , pinned: Nothing
+                 , status: Just "complete"
+                 , title: Nothing
+                 , url: Nothing 
+                 } ->
+            ChangeInfo { attention: tab.attention
+            , audible: tab.audible
+            , discarded: tab.discarded
+            , favIconUrl: tab.favIconUrl
+            , hidden: Just tab.hidden
+            , isArticle: tab.isArticle
+            , pinned: Just tab.pinned
+            , status: Just "complete"
+            , title: Just tab.title
+            , url: tab.url
+            }
+      cinfo -> cinfo
 
 onSidebarMsg :: Runtime.Port -> CR.Consumer SidebarEvent Aff Unit
 onSidebarMsg port =
