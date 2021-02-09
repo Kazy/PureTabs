@@ -5,12 +5,11 @@ import Browser.Tabs.OnUpdated (ChangeInfo(..), ChangeInfoRec)
 import CSS.Background as CssBackground
 import Control.Alt ((<$>))
 import Control.Alternative (empty, pure)
-import Control.Bind (bind, discard, void, (>=>), (>>=))
+import Control.Bind (bind, discard, (>=>), (>>=))
 import Control.Category (identity, (<<<), (>>>))
-import Control.Monad.Maybe.Trans (MaybeT(..))
-import Control.Monad.Maybe.Trans as MaybeT
 import Data.Array (catMaybes, deleteAt, filter, findIndex, head, insertAt, length, mapWithIndex, modifyAt) as A
 import Data.Eq ((/=), (==))
+import Data.Foldable (for_)
 import Data.Function (flip, ($))
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.MediaType.Common (textPlain)
@@ -487,8 +486,6 @@ scrollToTab
    .  MonadEffect monad
    => TabId 
    -> H.HalogenM state action input output monad Unit
-scrollToTab tid = void $ MaybeT.runMaybeT $ do 
-  el <- MaybeT $ H.getHTMLElementRef $ getTabRef tid
-  tabContainerEl <- MaybeT $ H.getHTMLElementRef tabContainerRef
-  MaybeT.lift $ H.liftEffect do 
-     scrollIntoView $ DOM.toElement el
+scrollToTab tid = do 
+  ref <- H.getHTMLElementRef $ getTabRef tid
+  for_ ref \el -> H.liftEffect $ scrollIntoView $ DOM.toElement el
