@@ -42,7 +42,7 @@ import Web.UIEvent.MouseEvent as ME
 data Query a
   = InitialTabList (Array Tab) a
   | TabCreated Tab a
-  | TabDeleted TabId a
+  | TabDeleted TabId (Maybe Tab -> a)
   | TabActivated (Maybe TabId) TabId a
   | TabMoved TabId Int a
   | TabInfoChanged TabId ChangeInfo a
@@ -51,6 +51,9 @@ data Query a
 
 data Output 
   = TabsSidebarAction SidebarEvent
+  -- Nothing if we already did the move
+  -- Just TabId in case the dragged ended somewhere else
+  | OutputTabDragEnd (Maybe TabId)
 
 data Action
   = UserClosedTab TabId Event
@@ -308,7 +311,7 @@ handleAction = case _ of
       dataTransfer = DE.dataTransfer dragEvent
     H.liftEffect
       $ do
-          DT.setData textPlain "" dataTransfer
+          DT.setData textPlain (showTabId tab) dataTransfer
           DT.setDropEffect DT.Move dataTransfer
     H.modify_ _ { selectedElem = Just { tab: tab, originalIndex: index, overIndex: Just index }, tabHovered = Nothing }
     H.liftEffect $ log $ "sb: drag start from " <> (show index)
@@ -341,16 +344,23 @@ handleAction = case _ of
     cancelLeaveDebounce state
     case state.selectedElem of
       Nothing -> pure unit
+
       -- On success, we don't remove the dragged element here. It is instead done in the
       -- query handler for TabMoved. See comment there for the explanation.
-      Just { tab: (Tab t), originalIndex, overIndex: (Just overIndex) } -> H.raise $ TabsSidebarAction (SbMoveTab t.id overIndex)
-      Just { overIndex: Nothing } -> H.modify_ _ { selectedElem = Nothing }
+      Just { tab: (Tab t), originalIndex, overIndex: (Just overIndex) } -> do
+        H.raise $ TabsSidebarAction (SbMoveTab t.id overIndex)
+        H.raise $ OutputTabDragEnd Nothing
+        H.liftEffect $ log "sb: drag end (asking to do a move)"
+
+      Just { tab: (Tab t), overIndex: Nothing } -> do
+        H.modify_ _ { selectedElem = Nothing }
+        H.raise $ OutputTabDragEnd $ Just t.id
+        H.liftEffect $ log "sb: drag end (doing nothing)"
 
   TabDragLeave event -> runDebounce $ TabDragLeaveRun event
 
   TabDragLeaveRun event -> do
     state <- H.get
-    H.liftEffect $ log "actually running drag leave"
     case state.selectedElem of
       Just selectedRec@{ overIndex: (Just overIndex) } -> H.modify_ _ { selectedElem = Just $ selectedRec { overIndex = Nothing } }
       _ -> pure unit
@@ -380,9 +390,11 @@ handleQuery = case _ of
       s { tabs = fromMaybe s.tabs $ A.insertAt t.index (Tab t) s.tabs}
     pure (Just a)
 
-  TabDeleted tid a -> do
+  TabDeleted tid reply -> do
+    { tabs } <- H.get
+    let deletedTab = findTabByTabId tid tabs
     H.modify_ \s -> s { tabs = applyAtTabId tid A.deleteAt s.tabs}
-    pure (Just a)
+    pure (Just (reply deletedTab))
 
   TabActivated prevTid tid a -> do
     let 
@@ -414,8 +426,8 @@ handleQuery = case _ of
         }
     pure (Just a)
 
-  TabDetached tid a -> 
-    handleQuery $ TabDeleted tid a
+  TabDetached tid reply -> 
+    handleQuery $ TabDeleted tid \_ -> reply
 
   TabAttached tab a -> do
     H.liftEffect (log $ "sb: tab attached " <> (showTabId tab))
