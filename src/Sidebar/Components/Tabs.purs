@@ -5,8 +5,10 @@ import Browser.Tabs.OnUpdated (ChangeInfo(..), ChangeInfoRec)
 import CSS.Background as CssBackground
 import Control.Alt ((<$>))
 import Control.Alternative (empty, pure)
-import Control.Bind (bind, discard, (>=>), (>>=))
+import Control.Bind (bind, discard, void, (>=>), (>>=))
 import Control.Category (identity, (<<<), (>>>))
+import Control.Monad.Maybe.Trans (MaybeT(..))
+import Control.Monad.Maybe.Trans as MaybeT
 import Data.Array (catMaybes, deleteAt, filter, findIndex, head, insertAt, length, mapWithIndex, modifyAt) as A
 import Data.Eq ((/=), (==))
 import Data.Function (flip, ($))
@@ -31,12 +33,14 @@ import Halogen.HTML.CSS as CSS
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Prelude (negate, sub)
+import PureTabs.Browser.Dom.Element (scrollIntoView)
 import PureTabs.Model.Events (SidebarEvent(..))
 import Sidebar.Utils (moveElem)
 import Web.Event.Event (Event)
 import Web.Event.Event as Event
 import Web.HTML.Event.DataTransfer as DT
 import Web.HTML.Event.DragEvent as DE
+import Web.HTML.HTMLElement (toElement) as DOM
 import Web.UIEvent.MouseEvent as ME
 
 data Query a
@@ -148,6 +152,12 @@ debounceTimeout ms var =
 _tab :: SProxy "tab"
 _tab = SProxy
 
+tabContainerRef :: H.RefLabel 
+tabContainerRef = H.RefLabel "tab-container"
+
+getTabRef :: TabId -> H.RefLabel
+getTabRef tid = H.RefLabel $ "tab-" <> show tid
+
 render :: forall m. State -> H.ComponentHTML Action () m
 render state =
   let
@@ -164,13 +174,14 @@ render state =
     currentOverIndex = fromMaybe (-1) $ state.selectedElem >>= _.overIndex
   in
     HH.div
-      [ HP.id_ "tabs"
+      [ HP.class_ $ H.ClassName "tabs"
       , HE.onDoubleClick (\ev -> Just (UserOpenedTab Nothing (ME.toEvent ev)))
       , HE.onDragOver \evt -> Just $ TabDragOver evt (sub (A.length tabs) 1)
       , HE.onDragLeave \evt -> Just $ TabDragLeave evt
       ]
       [ HH.div
-          [ HP.id_ "inner-tabs"
+          [ HP.class_ $ H.ClassName "inner-tabs"
+          , HP.ref tabContainerRef
           -- We prevent both propagation to avoid tabs blinking during drag and
           -- drop. In the case of dragOver, the handler from #tabs triggers
           -- when we drag over between two tabs (because of the margin), and
@@ -197,6 +208,7 @@ render state =
   renderTab index props (Tab t) =
     HH.div
       [ HP.id_ $ show t.id
+      , HP.ref $ getTabRef t.id
       , HP.draggable true
 
       -- drag events
@@ -401,6 +413,7 @@ handleQuery = case _ of
       updateTabs = maybe identity (\old -> applyAtTabId old $ setTabActiveAtIndex false) prevTid
           >>> applyAtTabId tid (setTabActiveAtIndex true)
     H.modify_ \s -> s { tabs = updateTabs s.tabs }
+    scrollToTab tid
     pure (Just a)
 
   TabMoved tid next a -> do
@@ -468,3 +481,14 @@ updateTabFromInfo (ChangeInfo cinfo) (Tab t) =
         >>> updateField { acc: _.favIconUrl, update: (\val -> _ { favIconUrl = Just val }) }
   in
     Tab (applyChange t)
+
+scrollToTab 
+  :: forall state action input output monad
+   .  MonadEffect monad
+   => TabId 
+   -> H.HalogenM state action input output monad Unit
+scrollToTab tid = void $ MaybeT.runMaybeT $ do 
+  el <- MaybeT $ H.getHTMLElementRef $ getTabRef tid
+  tabContainerEl <- MaybeT $ H.getHTMLElementRef tabContainerRef
+  MaybeT.lift $ H.liftEffect do 
+     scrollIntoView $ DOM.toElement el
