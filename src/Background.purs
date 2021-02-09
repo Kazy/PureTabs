@@ -26,7 +26,7 @@ import Data.Lens.At (at)
 import Data.List (List, foldMap)
 import Data.Map as M
 import Data.Set as Set
-import Data.Maybe (Maybe(..), maybe)
+import Data.Maybe (Maybe(..))
 import Data.Monoid ((<>))
 import Data.Show (show)
 import Data.Unit (unit)

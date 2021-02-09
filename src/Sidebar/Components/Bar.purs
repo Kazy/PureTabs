@@ -1,8 +1,8 @@
 module PureTabs.Sidebar.Bar where
 
-import Browser.Tabs (Tab(..), TabId(..))
+import Browser.Tabs (Tab(..), TabId)
 import Control.Alternative (pure)
-import Control.Bind (bind, discard, map, void, (*>), (<#>))
+import Control.Bind (bind, discard, map, void, (<#>))
 import Data.Array ((:))
 import Data.Array as A
 import Data.Eq ((/=))
