@@ -11,6 +11,7 @@ module Browser.Utils
   , mkListenerThree
   , unwrapForeign
   , unsafeLog
+  , unsafeLog'
   ) where
 
 import Control.Alt (map)
@@ -58,4 +59,5 @@ unwrapForeign d = case runExcept
   Left err -> throw $ intercalate ", " (map renderForeignError err)
   Right val -> pure val
 
-foreign import unsafeLog :: forall a. a
+foreign import unsafeLog' :: forall a. a
+foreign import unsafeLog :: forall a. a -> Effect Unit
