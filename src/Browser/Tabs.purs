@@ -23,7 +23,7 @@ import Data.Eq (class Eq)
 import Data.Function (($))
 import Data.Generic.Rep (class Generic)
 import Data.Generic.Rep.Show (genericShow)
-import Data.List (List, fromFoldable, toUnfoldable, singleton)
+import Data.List (List, fromFoldable)
 import Data.Maybe (Maybe)
 import Data.Newtype (class Newtype)
 import Data.Number.Format (toString)
@@ -134,17 +134,17 @@ browserQuery = do
 
 foreign import browserRemove' :: (Array Number) -> Effect (Promise Unit)
 
-browserRemove :: (List TabId) -> Aff Unit
+browserRemove :: (Array TabId) -> Aff Unit
 browserRemove tabs =
   let
-    tabIdsArray = toUnfoldable $ map unwrap tabs
+    tabIdsArray = map unwrap tabs
   in
     toAffE $ browserRemove' tabIdsArray
   where
   unwrap (TabId n) = n
 
 browserRemoveOne :: TabId -> Aff Unit
-browserRemoveOne tabId = browserRemove (singleton tabId)
+browserRemoveOne tabId = browserRemove [tabId]
 
 type RowUpdateProperties
   = ( active :: Boolean

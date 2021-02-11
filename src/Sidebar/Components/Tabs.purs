@@ -1,4 +1,4 @@
-module PureTabs.Sidebar.Tabs (component, Query(..), Output(..)) where
+module PureTabs.Sidebar.Tabs (component, Query(..), Output(..), Slot) where
 
 import Browser.Tabs (Tab(..), TabId, showTabId)
 import Browser.Tabs.OnUpdated (ChangeInfo(..), ChangeInfoRec)
@@ -41,6 +41,8 @@ import Web.HTML.Event.DataTransfer as DT
 import Web.HTML.Event.DragEvent as DE
 import Web.HTML.HTMLElement (toElement) as DOM
 import Web.UIEvent.MouseEvent as ME
+
+type Slot a = H.Slot Query Output a
 
 data Query a
   = InitialTabList (Array Tab) a

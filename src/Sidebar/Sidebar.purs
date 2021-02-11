@@ -43,42 +43,47 @@ onBackgroundMsgProducer port =
   CRA.produce \emitter ->
     liftEffect $ void $ Runtime.onMessageJsonAddListener port (emit emitter)
 
-onBackgroundMsgConsumer :: (forall a. Tabs.Query a -> Aff (Maybe a)) -> CR.Consumer BackgroundEvent Aff Unit
+
+onBackgroundMsgConsumer :: (forall a. Bar.Query a -> Aff (Maybe a)) -> CR.Consumer BackgroundEvent Aff Unit
 onBackgroundMsgConsumer query =
   CR.consumer
     $ case _ of
 
         BgInitialTabList tabs -> do
-          void $ query $ H.tell $ Tabs.InitialTabList tabs
+          void $ query $ H.tell $ \q -> Bar.TabsQuery (Tabs.InitialTabList tabs q) 
           pure Nothing
 
         BgTabCreated tab -> do
-          void $ query $ H.tell $ Tabs.TabCreated tab
+          void $ query $ H.tell $ \q -> Bar.TabsQuery (Tabs.TabCreated tab q)
           pure Nothing
 
         BgTabDeleted tabId -> do
-          void $ query $ H.request $ Tabs.TabDeleted tabId
+          void $ query $ H.request $ \q -> Bar.TabsQuery (Tabs.TabDeleted tabId q)
           pure Nothing
 
         BgTabActivated prev next -> do
-          void $ query $ H.tell $ Tabs.TabActivated prev next
+          void $ query $ H.tell $ \q -> Bar.TabsQuery (Tabs.TabActivated prev next q)
           pure Nothing
 
         BgTabMoved tabId prev next -> do
-          void $ query $ H.tell $ Tabs.TabMoved tabId next
+          void $ query $ H.tell $ \q -> Bar.TabsQuery (Tabs.TabMoved tabId next q)
           pure Nothing
 
         BgTabUpdated tabId cinfo tab -> do
-          void $ query $ H.tell $ Tabs.TabInfoChanged tabId $ fillChangeInfoIfEmpty tab cinfo
+          void $ query $ H.tell $ \q -> Bar.TabsQuery (Tabs.TabInfoChanged tabId (fillChangeInfoIfEmpty tab cinfo) q)
           pure Nothing
 
         BgTabDetached tabId -> do 
-          void $ query $ H.tell $ Tabs.TabDetached tabId
+          void $ query $ H.tell $ \q -> Bar.TabsQuery (Tabs.TabDetached tabId q)
           pure Nothing
 
         BgTabAttached tab -> do 
-          void $ query $ H.tell $ Tabs.TabAttached tab
+          void $ query $ H.tell $ \q -> Bar.TabsQuery (Tabs.TabAttached tab q)
           pure Nothing
+
+        BgGroupDeleted gid -> do
+           void $ query $ H.tell $ Bar.GroupDeleted gid
+           pure Nothing
 
 -- | Workaround for https://bugzilla.mozilla.org/show_bug.cgi?id=1640112
 -- | In case the ChangeInfo only contains an update for the status field to "complete",

@@ -197,10 +197,12 @@ manageSidebar ref winId port = case _ of
      BT.browserHideTabs tabIdsToHide
      BT.browserShowTabs tabIds
 
+  SbDeletedGroup gid tabIds -> launchAff_ do
+     BT.browserRemove tabIds
+     liftEffect $ Runtime.postMessageJson port $ BgGroupDeleted gid
+
+
   SbDetacheTab -> pure unit
-  SbCreatedGroup -> pure unit
-  SbDeleteGroup -> pure unit
-  SbRenameGroup -> pure unit
   SbHasWindowId winId' -> pure unit
 
 

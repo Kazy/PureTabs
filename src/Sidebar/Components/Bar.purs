@@ -24,24 +24,17 @@ import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
-import Prelude (class Eq, class Ord, class Show, flip, show, (#), (&&), (+), (-), (<<<), (<>), (==), (>>>))
+import Prelude (flip, show, (#), (&&), (+), (-), (<<<), (<>), (==), (>), (>>>))
 import PureTabs.Model.Events (SidebarEvent(..))
+import PureTabs.Model.Group (GroupId(..))
+import PureTabs.Sidebar.Component.GroupName as GroupName
+import PureTabs.Sidebar.Component.TopMenu as TopMenu
 import PureTabs.Sidebar.Tabs (Output(..))
 import PureTabs.Sidebar.Tabs as Tabs
-import Sidebar.Component.GroupName as GroupName
 import Sidebar.Utils (moveElem, whenC)
 import Web.HTML.Event.DataTransfer as DT
 import Web.HTML.Event.DragEvent as DE
 
-
-newtype GroupId
-  = GroupId Int
-
-derive instance eqGroupId :: Eq GroupId
-derive instance ordGroupId :: Ord GroupId
-
-instance showGroupId :: Show GroupId where 
-  show (GroupId gid) = "GroupId(" <> (show gid) <> ")"
 
 type Group
   = { name :: String
@@ -60,10 +53,16 @@ data Action
   = UserSelectedGroup GroupId
   | UserRenameGroup GroupId String
   | UserCreatedGroup
+  | UserChangedDeletion Boolean
   | UserDeletedGroup GroupId
   | HandleTabsOutput GroupId Tabs.Output
   | GroupNameDragOver DE.DragEvent GroupId
   | DragEnd DE.DragEvent
+
+
+data Query a
+  = TabsQuery (Tabs.Query a)
+  | GroupDeleted GroupId a
 
 initialState :: forall i. i -> State
 initialState _ =
@@ -79,15 +78,20 @@ initialState _ =
     }
 
 type Slots
-  = ( tab :: H.Slot Tabs.Query Tabs.Output GroupId, groupName :: forall unusedQuery. H.Slot unusedQuery GroupName.NewName GroupId)
+  = ( tabs :: Tabs.Slot GroupId
+    , groupName :: GroupName.Slot GroupId
+    , topMenu :: TopMenu.Slot Unit)
 
-_tab :: SProxy "tab"
-_tab = (SProxy :: _ "tab")
+_tabs :: SProxy "tabs"
+_tabs = (SProxy :: _ "tabs")
 
 _groupName :: SProxy "groupName"
 _groupName = (SProxy :: _ "groupName")
 
-component :: forall i m. MonadEffect m => MonadAff m => H.Component HH.HTML Tabs.Query i SidebarEvent m
+_topMenu :: SProxy "topMenu"
+_topMenu = (SProxy :: _ "topMenu")
+
+component :: forall i m. MonadEffect m => MonadAff m => H.Component HH.HTML Query i SidebarEvent m
 component =
   H.mkComponent
     { initialState
@@ -106,11 +110,11 @@ component =
     let 
         currentGroupShown = fromMaybe state.currentGroup state.draggedCurrentGroup
 
-        menuElem attrs text = HH.li attrs [ HH.text text]
-
-        topMenu = HH.div [ HP.id_ "bar-menu" ] [
-          HH.ul [] [menuElem [HE.onClick \_ -> Just UserCreatedGroup] "+", menuElem [] "-"]
-        ]
+        topMenu = HH.slot _topMenu unit TopMenu.component unit (
+          Just <<< case _ of 
+               TopMenu.CreateGroup -> UserCreatedGroup
+               TopMenu.ChangedDeletion value -> UserChangedDeletion value
+        )
 
         barListGroup = HH.div [ HP.id_ "bar-list" ] [HH.ul [ HP.id_ "bar-list-group"] $ 
           (M.toUnfoldable state.groups) <#> \(Tuple gid g) -> renderGroup gid (gid == currentGroupShown) g
@@ -125,7 +129,7 @@ component =
         HH.div [ HP.id_ "bar", HE.onDragEnd \evt -> Just $ DragEnd evt ] $ topMenu : barListGroup : tabsDivs 
 
   renderGroupTabs :: GroupId -> H.ComponentHTML Action Slots m
-  renderGroupTabs groupId = HH.slot _tab groupId Tabs.component unit (Just <<< (HandleTabsOutput groupId))
+  renderGroupTabs groupId = HH.slot _tabs groupId Tabs.component unit (Just <<< (HandleTabsOutput groupId))
 
   renderGroup :: GroupId -> Boolean -> Group -> H.ComponentHTML Action Slots m
   renderGroup groupId isActive group =  
@@ -133,7 +137,11 @@ component =
       HP.classes [(H.ClassName "group-name"), whenC isActive (H.ClassName "active-group")]
       , HE.onClick (\_ -> Just (UserSelectedGroup groupId))
       , HE.onDragOver \evt -> Just $ GroupNameDragOver evt groupId
-    ] [ HH.slot _groupName groupId GroupName.component group.name (\newName -> Just (UserRenameGroup groupId newName))] 
+    ] [ HH.slot _groupName groupId GroupName.component group.name 
+          case _ of 
+               GroupName.NewName newName -> Just (UserRenameGroup groupId newName)
+               GroupName.DeleteGroup -> Just (UserDeletedGroup groupId)
+    ] 
 
   handleAction :: MonadEffect m => Action -> H.HalogenM State Action Slots SidebarEvent m Unit
   handleAction = 
@@ -154,7 +162,14 @@ component =
                  s.groups 
                }
 
-         UserDeletedGroup gid -> pure unit
+         UserChangedDeletion value -> void $ H.queryAll _groupName $ H.tell $ GroupName.DeletionEnabled value
+
+         UserDeletedGroup gid -> do 
+            s <- H.get
+            if M.size s.groups > 1 then
+              H.raise $ SbDeletedGroup gid $ getTabIdsOfGroup gid s.tabsToGroup
+            else 
+              void $ H.query _groupName gid $ H.tell $ GroupName.TriedToDeleteLastGroup
 
          GroupNameDragOver dragEvent gid -> do
            let 
@@ -223,10 +238,10 @@ component =
               }
             let newIndexInGroup = getPositionTabInGroup newTabIndex toGroup s.groupTabsPositions
 
-            deletedTab' <- H.query _tab fromGroup $ H.request $ Tabs.TabDeleted tid
+            deletedTab' <- H.query _tabs fromGroup $ H.request $ Tabs.TabDeleted tid
             case deletedTab' of 
                  Just (Just (Tab tab)) -> 
-                   void $ H.query _tab toGroup $ H.tell 
+                   void $ H.query _tabs toGroup $ H.tell 
                     $ Tabs.TabCreated $ Tab (tab { index = newIndexInGroup })
                  _ -> pure unit
 
@@ -257,23 +272,29 @@ component =
              newIndex # maybe (pure unit) \idx -> H.raise $ SbMoveTab tid idx 
 
  
+handleQuery :: forall act a m. Query a -> H.HalogenM State act Slots SidebarEvent m (Maybe a)
+handleQuery = case _ of 
+   TabsQuery q -> handleTabsQuery q
 
-  handleQuery :: forall act a. Tabs.Query a -> H.HalogenM State act Slots SidebarEvent m (Maybe a)
-  handleQuery = case _ of
+   GroupDeleted gid a -> do 
+      H.modify_ \s -> s { groups = M.delete gid s.groups }
+      pure $ Just a
+
+
+handleTabsQuery :: forall act a m. Tabs.Query a -> H.HalogenM State act Slots SidebarEvent m (Maybe a)
+handleTabsQuery = case _ of
 
     Tabs.InitialTabList tabs a -> do
        s <- H.modify (\s -> 
          let 
              tabIdGroup = tabs <#> \(Tab t) -> Tuple t.id s.currentGroup
           in
-         s 
-         { tabsToGroup = M.fromFoldable tabIdGroup
-         , groupTabsPositions = tabIdGroup
-         }
+         s { tabsToGroup = M.fromFoldable tabIdGroup , groupTabsPositions = tabIdGroup }
        )
        let activatedTab = tabs # A.filter (\(Tab t) -> t.active) >>> A.head
        void $ tellChild s.currentGroup $ Tabs.InitialTabList tabs
-       activatedTab # maybe (pure unit) \(Tab t) -> void $ tellChild s.currentGroup $ Tabs.TabActivated Nothing t.id
+       activatedTab # maybe (pure unit) \(Tab t) -> 
+         void $ tellChild s.currentGroup $ Tabs.TabActivated Nothing t.id
        pure (Just a)
 
     Tabs.TabCreated (Tab tab) a -> do 
@@ -307,7 +328,7 @@ component =
                           (Tuple tid s.currentGroup)
                           s.groupTabsPositions
                        })
-         void $ H.query _tab gid $ H.request $ Tabs.TabDeleted tid
+         void $ H.query _tabs gid $ H.request $ Tabs.TabDeleted tid
        pure (Just (reply Nothing))
 
     Tabs.TabActivated prevTid' tid a -> do 
@@ -341,14 +362,14 @@ component =
        pure (Just a)
 
     Tabs.TabDetached tid a -> do 
-       handleQuery $ Tabs.TabDeleted tid \_ -> a
+       handleTabsQuery $ Tabs.TabDeleted tid \_ -> a
 
     Tabs.TabAttached tab a -> do 
-       handleQuery $ Tabs.TabCreated tab a
+       handleTabsQuery $ Tabs.TabCreated tab a
 
     where
         tellChild :: GroupId -> (H.Tell Tabs.Query) -> H.HalogenM State act Slots SidebarEvent m (Maybe Unit)
-        tellChild gid q = H.query _tab gid $ H.tell q
+        tellChild gid q = H.query _tabs gid $ H.tell q
         -- 
         -- requestChild :: GroupId -> (H.Request Tabs.Query) -> H.HalogenM State act Slots SidebarEvent M (Maybe a)
         -- requestChild gid q = H.request 
@@ -362,6 +383,7 @@ component =
           case M.lookup tabId tabsToGroup of 
                Just groupId -> f groupId
                Nothing -> pure unit
+
 
 getPositionTabInGroup
   :: Int
@@ -390,7 +412,7 @@ getTabIdsOfGroup gid =
   >>> A.filter (\(Tuple tid gid') -> gid' == gid)
   >>> map T.fst
 
---| Obtain the window index of the last tab of a group.
+-- | Obtain the window index of the last tab of a group.
 lastWinTabIndexInGroup 
   :: GroupId
   -> Array (Tuple TabId GroupId)

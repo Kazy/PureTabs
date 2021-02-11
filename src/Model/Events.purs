@@ -9,6 +9,7 @@ import Data.Generic.Rep (class Generic)
 import Data.Generic.Rep.Show (genericShow)
 import Data.Maybe (Maybe)
 import Data.Show (class Show)
+import PureTabs.Model.Group (GroupId)
 
 
 data BackgroundEvent
@@ -20,6 +21,7 @@ data BackgroundEvent
   | BgTabActivated (Maybe TabId) TabId
   | BgTabAttached Tab
   | BgTabDetached TabId
+  | BgGroupDeleted GroupId
 
 derive instance genBackgroundEvent :: Generic BackgroundEvent _
 
@@ -32,11 +34,9 @@ data SidebarEvent
   | SbCreateTab (Maybe TabId)
   | SbMoveTab TabId Int
   | SbDetacheTab
-  | SbCreatedGroup
-  | SbDeleteGroup
-  | SbRenameGroup
   | SbHasWindowId WindowId
   | SbSelectedGroup (Array TabId)
+  | SbDeletedGroup GroupId (Array TabId)
 
 derive instance genSidebarEvent :: Generic SidebarEvent _
 
