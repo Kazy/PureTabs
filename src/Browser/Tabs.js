@@ -1,7 +1,9 @@
 "use strict";
 
-exports.queryImpl = function () {
-  return browser.tabs.query({});
+exports.queryImpl = function (query) {
+  return function () {
+    return browser.tabs.query(query);
+  };
 };
 
 exports["browserRemove'"] = function (tabs) {

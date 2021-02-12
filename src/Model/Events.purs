@@ -21,7 +21,7 @@ data BackgroundEvent
   | BgTabActivated (Maybe TabId) TabId
   | BgTabAttached Tab
   | BgTabDetached TabId
-  | BgGroupDeleted GroupId
+  | BgGroupDeleted GroupId (Maybe TabId)
 
 derive instance genBackgroundEvent :: Generic BackgroundEvent _
 

@@ -19,7 +19,7 @@ module PureTabs.Model.GlobalState (
   , _windows
   , emptyWindow
   , initialGlobalState
-  , initialTabListToGlobalState
+  , initialTabsToGlobalState
   , addEmptyWindow
   , deleteWindow
   , createTab
@@ -41,7 +41,7 @@ import Control.Alt ((<|>))
 import Control.Bind (join, bind, (>>=))
 import Control.Category (identity, (<<<), (>>>))
 import Control.Plus (empty) as A
-import Data.Array (deleteAt, filter, foldl, fromFoldable, insertAt, mapWithIndex, sortBy, (!!)) as A
+import Data.Array (deleteAt, filter, foldl, fromFoldable, insertAt, mapWithIndex, sortBy, groupBy, (!!)) as A
 import Data.Eq ((==), (/=))
 import Data.Function (const, on, ($))
 import Data.Functor (map, (<#>), (<$>))
@@ -49,8 +49,8 @@ import Data.Lens (Lens', Traversal', _Just, over, preview, set, view)
 import Data.Lens.At (at)
 import Data.Lens.Iso.Newtype (_Newtype)
 import Data.Lens.Record (prop)
-import Data.List (List, groupBy, head) as L
-import Data.List.NonEmpty (NonEmptyList, head) as NEL
+import Data.List (head) as L
+import Data.Array.NonEmpty (NonEmptyArray, head) as NEA
 import Data.Map as M
 import Data.Maybe (Maybe(..), fromMaybe, maybe, maybe')
 import Data.Monoid ((<>))
@@ -170,15 +170,15 @@ sendToWindowPort wid state event =
     Just port -> postMessageJson port event
     Nothing -> error $ "bg: no port found for window id " <> (show wid)
 
-initialTabListToGlobalState :: L.List Tab -> GlobalState
-initialTabListToGlobalState tabs = { windows: windows, detached: Nothing }
+initialTabsToGlobalState :: Array Tab -> GlobalState
+initialTabsToGlobalState tabs = { windows: windows, detached: Nothing }
   where
-  groupedTabs = L.groupBy (\(Tab t1) (Tab t2) -> t1.windowId == t2.windowId) tabs
+  groupedTabs = A.groupBy (\(Tab t1) (Tab t2) -> t1.windowId == t2.windowId) tabs
 
-  tabsToWindow :: NEL.NonEmptyList Tab -> Tuple WindowId ExtWindow
+  tabsToWindow :: NEA.NonEmptyArray Tab -> Tuple WindowId ExtWindow
   tabsToWindow tabs' =
     let
-      windowId = (\(Tab t) -> t.windowId) $ NEL.head tabs'
+      windowId = (\(Tab t) -> t.windowId) $ NEA.head tabs'
 
       window =
         { tabs: M.fromFoldable $ tabs' <#> \(Tab t) -> Tuple t.id (Tab t)

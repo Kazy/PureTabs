@@ -1,7 +1,7 @@
 module PureTabs.Background where
 
 import Browser.Runtime as Runtime
-import Browser.Tabs (Tab, TabId, WindowId)
+import Browser.Tabs (Tab, TabId(..), WindowId(..))
 import Browser.Tabs as BT
 import Browser.Tabs.OnActivated as OnActivated
 import Browser.Tabs.OnAttached as OnAttached
@@ -25,9 +25,10 @@ import Data.Lens (_Just, set, view)
 import Data.Lens.At (at)
 import Data.List (List, foldMap)
 import Data.Map as M
-import Data.Set as Set
 import Data.Maybe (Maybe(..))
 import Data.Monoid ((<>))
+import Data.Newtype (unwrap)
+import Data.Set as Set
 import Data.Show (show)
 import Data.Unit (unit)
 import Effect (Effect)
@@ -35,7 +36,7 @@ import Effect.Aff (launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
 import Effect.Ref as Ref
-import Prelude (Unit, bind, ($), discard, (<<<))
+import Prelude (Unit, bind, ($), discard, (<<<), (<$>))
 import PureTabs.Model.Events (BackgroundEvent(..), SidebarEvent(..))
 import PureTabs.Model.GlobalState as GS
 
@@ -49,8 +50,8 @@ main :: Effect Unit
 main = do
   log "starting background"
   launchAff_ do
-     allTabs <- BT.browserQuery
-     liftEffect $ initializeBackground =<< (Ref.new $ GS.initialTabListToGlobalState allTabs)
+     allTabs <- BT.browserQuery {}
+     liftEffect $ initializeBackground =<< (Ref.new $ GS.initialTabsToGlobalState allTabs)
 
 initializeBackground :: Ref.Ref GS.GlobalState -> Effect Unit
 initializeBackground ref = do
@@ -199,7 +200,9 @@ manageSidebar ref winId port = case _ of
 
   SbDeletedGroup gid tabIds -> launchAff_ do
      BT.browserRemove tabIds
-     liftEffect $ Runtime.postMessageJson port $ BgGroupDeleted gid
+     activeTab <- BT.browserQuery { windowId: unwrap winId, active: true }
+     let activeTabId = activeTab # A.head >>> (<$>) (unwrap >>> _.id)
+     liftEffect $ Runtime.postMessageJson port $ BgGroupDeleted gid activeTabId
 
 
   SbDetacheTab -> pure unit

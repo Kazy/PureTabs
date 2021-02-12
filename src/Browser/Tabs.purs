@@ -23,7 +23,6 @@ import Data.Eq (class Eq)
 import Data.Function (($))
 import Data.Generic.Rep (class Generic)
 import Data.Generic.Rep.Show (genericShow)
-import Data.List (List, fromFoldable)
 import Data.Maybe (Maybe)
 import Data.Newtype (class Newtype)
 import Data.Number.Format (toString)
@@ -42,6 +41,8 @@ import Prim.Row (class Union)
 
 newtype WindowId
   = WindowId Number
+
+derive instance newtypeWindowId :: Newtype WindowId _
 
 derive instance eqWindowId :: Eq WindowId
 
@@ -122,14 +123,38 @@ instance encodeTab :: Encode Tab where
 instance decodeTab :: Decode Tab where
   decode x = genericDecode (defaultOptions { unwrapSingleConstructors = true }) x
 
-foreign import queryImpl :: Effect (Promise (Array Foreign))
 
-browserQuery :: Aff (List Tab)
-browserQuery = do
-  tabsArray <- toAffE queryImpl
-  let
-    tabsList = fromFoldable tabsArray
-  parsed <- liftEffect $ traverse unwrapForeign tabsList
+type QueryRecord = 
+  ( active :: Boolean
+  , audible :: Boolean
+  , autoDiscardable :: Boolean
+  , cookieStoreId :: String
+  , currentWindow :: Boolean
+  , discarded :: Boolean
+  , hidden :: Boolean
+  , highlighted :: Boolean
+  , index :: Int
+  , muted :: Boolean
+  , lastFocusedWindow :: Boolean
+  , pinned :: Boolean
+  , title :: String
+  , url :: String
+  , windowId :: Number
+  )
+
+foreign import queryImpl 
+  :: forall r
+   . { | r }
+  -> Effect (Promise (Array Foreign))
+
+browserQuery 
+  :: forall r r2
+   . Union r r2 QueryRecord
+  => Record r
+  -> Aff (Array Tab)
+browserQuery query = do
+  tabsArray <- toAffE $ queryImpl query
+  parsed <- liftEffect $ traverse unwrapForeign tabsArray
   pure parsed
 
 foreign import browserRemove' :: (Array Number) -> Effect (Promise Unit)

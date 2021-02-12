@@ -81,8 +81,8 @@ onBackgroundMsgConsumer query =
           void $ query $ H.tell $ \q -> Bar.TabsQuery (Tabs.TabAttached tab q)
           pure Nothing
 
-        BgGroupDeleted gid -> do
-           void $ query $ H.tell $ Bar.GroupDeleted gid
+        BgGroupDeleted gid currentTid -> do
+           void $ query $ H.tell $ Bar.GroupDeleted gid currentTid
            pure Nothing
 
 -- | Workaround for https://bugzilla.mozilla.org/show_bug.cgi?id=1640112

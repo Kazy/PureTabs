@@ -2,7 +2,7 @@ module PureTabs.Sidebar.Bar where
 
 import Browser.Tabs (Tab(..), TabId)
 import Control.Alternative (pure)
-import Control.Bind (bind, discard, map, void, (<#>))
+import Control.Bind (bind, discard, map, void, (<#>), (>>=))
 import Data.Array ((:))
 import Data.Array as A
 import Data.Eq ((/=))
@@ -24,7 +24,7 @@ import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
-import Prelude (flip, show, (#), (&&), (+), (-), (<<<), (<>), (==), (>), (>>>))
+import Prelude (flip, show, (<$>), (#), (&&), (+), (-), (<<<), (<>), (==), (>), (>>>))
 import PureTabs.Model.Events (SidebarEvent(..))
 import PureTabs.Model.Group (GroupId(..))
 import PureTabs.Sidebar.Component.GroupName as GroupName
@@ -62,7 +62,7 @@ data Action
 
 data Query a
   = TabsQuery (Tabs.Query a)
-  | GroupDeleted GroupId a
+  | GroupDeleted GroupId (Maybe TabId) a
 
 initialState :: forall i. i -> State
 initialState _ =
@@ -276,8 +276,12 @@ handleQuery :: forall act a m. Query a -> H.HalogenM State act Slots SidebarEven
 handleQuery = case _ of 
    TabsQuery q -> handleTabsQuery q
 
-   GroupDeleted gid a -> do 
-      H.modify_ \s -> s { groups = M.delete gid s.groups }
+   GroupDeleted gid currentTid a -> do 
+      H.modify_ \s -> 
+        let 
+            currentGroup = fromMaybe s.currentGroup $ currentTid >>= (flip M.lookup s.tabsToGroup)
+         in
+            s { groups = M.delete gid s.groups, currentGroup = currentGroup }
       pure $ Just a
 
 
