@@ -5,15 +5,18 @@ import Control.Alternative (pure)
 import Control.Bind (bind, discard, map, void, (<#>), (>>=))
 import Data.Array ((:))
 import Data.Array as A
+import Data.Array.NonEmpty (NonEmptyArray)
+import Data.Array.NonEmpty as NonEmptyArray
 import Data.Eq ((/=))
 import Data.Function (($))
 import Data.Map as M
-import Data.Maybe (Maybe(..), fromMaybe, maybe)
+import Data.Maybe (Maybe(..), fromMaybe, fromMaybe', isNothing, maybe)
 import Data.MediaType.Common (textPlain)
 import Data.Number (fromString)
-import Data.Set (toUnfoldable, Set) as S
+import Data.Set (toUnfoldable, Set, fromFoldable, difference) as S
 import Data.Set.NonEmpty (cons, max) as NES
 import Data.Symbol (SProxy(..))
+import Data.Traversable (sequence, traverse)
 import Data.Tuple (Tuple(..))
 import Data.Tuple as T
 import Data.Unit (Unit, unit)
@@ -25,7 +28,7 @@ import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Prelude (flip, show, (<$>), (#), (&&), (+), (-), (<<<), (<>), (==), (>), (>>>))
-import PureTabs.Model.Events (SidebarEvent(..))
+import PureTabs.Model.Events (SidebarEvent(..), TabWithGroup(..))
 import PureTabs.Model.Group (GroupId(..))
 import PureTabs.Sidebar.Component.GroupName as GroupName
 import PureTabs.Sidebar.Component.TopMenu as TopMenu
@@ -62,6 +65,7 @@ data Action
 
 data Query a
   = TabsQuery (Tabs.Query a)
+  | InitialTabsWithGroup (Array TabWithGroup) a
   | GroupDeleted GroupId (Maybe TabId) a
 
 initialState :: forall i. i -> State
@@ -143,138 +147,171 @@ component =
                GroupName.DeleteGroup -> Just (UserDeletedGroup groupId)
     ] 
 
-  handleAction :: MonadEffect m => Action -> H.HalogenM State Action Slots SidebarEvent m Unit
-  handleAction = 
-    case _ of
+handleAction :: forall m. MonadEffect m => Action -> H.HalogenM State Action Slots SidebarEvent m Unit
+handleAction = 
+  case _ of
 
-         UserSelectedGroup gid -> do
-            H.modify_ _ { currentGroup = gid }
+       UserSelectedGroup gid -> do
+          H.modify_ _ { currentGroup = gid }
 
-         UserRenameGroup gid newName -> 
-            H.modify_ \s -> s { groups = M.update (\g -> Just $ g { name = newName }) gid s.groups }
+       UserRenameGroup gid newName -> 
+          H.modify_ \s -> s { groups = M.update (\g -> Just $ g { name = newName }) gid s.groups }
 
-         UserCreatedGroup -> do
-           H.modify_ \s -> 
-             s { groups = 
-               M.insert 
-                 (findNextGroupId $ M.keys s.groups) 
-                 { name: "new group", pos: M.size s.groups } 
-                 s.groups 
-               }
+       UserCreatedGroup -> do
+         H.modify_ $ createGroup Nothing
 
-         UserChangedDeletion value -> void $ H.queryAll _groupName $ H.tell $ GroupName.DeletionEnabled value
+       UserChangedDeletion value -> void $ H.queryAll _groupName $ H.tell $ GroupName.DeletionEnabled value
 
-         UserDeletedGroup gid -> do 
-            s <- H.get
-            if M.size s.groups > 1 then
-              H.raise $ SbDeletedGroup gid $ getTabIdsOfGroup gid s.tabsToGroup
-            else 
-              void $ H.query _groupName gid $ H.tell $ GroupName.TriedToDeleteLastGroup
+       UserDeletedGroup gid -> do 
+          s <- H.get
+          if M.size s.groups > 1 then
+            H.raise $ SbDeletedGroup gid $ getTabIdsOfGroup gid s.tabsToGroup
+          else 
+            void $ H.query _groupName gid $ H.tell $ GroupName.TriedToDeleteLastGroup
 
-         GroupNameDragOver dragEvent gid -> do
+       GroupNameDragOver dragEvent gid -> do
+         let 
+             dataTransfer = DE.dataTransfer dragEvent
+         dragData <- H.liftEffect $ DT.getData textPlain dataTransfer
+         case fromString dragData of
+              Nothing -> H.liftEffect $ log $ "sb: group drag over, got something else than a number: " <> dragData
+              Just tid -> do 
+                 H.modify_ _ { draggedCurrentGroup = Just gid }
+                 H.liftEffect $ log $ "sb: dragging " <> (show tid) <> " over " <> (show gid)
+
+       DragEnd evt -> do 
+          H.modify_ _ { draggedCurrentGroup = Nothing }
+          H.liftEffect $ log $ "sb: drag end from bar component"
+
+       HandleTabsOutput gid output -> 
+         case output of 
+            OutputTabDragEnd tid' -> do 
+                 s <- H.get
+                 case Tuple tid' s.draggedCurrentGroup of 
+                      -- Only perform a move when we're dragging a tab onto a different group
+                      Tuple (Just tid) (Just draggedGroup) | s.currentGroup /= draggedGroup -> 
+                               moveTabToGroup tid gid draggedGroup s
+                      _ -> pure unit
+
+                 H.modify_ _ { draggedCurrentGroup = Nothing }
+
+
+            TabsSidebarAction (SbMoveTab tid groupIndex) -> sidebarMoveTab tid gid groupIndex
+            TabsSidebarAction sbEvent -> H.raise sbEvent
+
+  where
+        moveTabToGroup 
+          :: MonadEffect m => TabId 
+          -> GroupId 
+          -> GroupId 
+          -> State 
+          -> H.HalogenM State Action Slots SidebarEvent m Unit
+        moveTabToGroup tid fromGroup toGroup state = do
+          let 
+              -- XXX: The goal is to put it at the end, but if you:
+              --  - create a new group
+              --  - drag a tab from the first one to it
+              --  - drag it back to the first group
+              --  Then it will be at the beginning of the group, not the end.
+
+              -- Right now we only put it at the end of the list. 
+              -- We don't support dragging at a specific place.
+              newTabIndex = 
+                fromMaybe (A.length state.groupTabsPositions) 
+                $ lastWinTabIndexInGroup toGroup state.groupTabsPositions
+
+          s <- H.modify \s -> 
+            s { tabsToGroup = M.update (\_ -> Just toGroup) tid s.tabsToGroup
+            , groupTabsPositions = 
+              s.groupTabsPositions
+              <#> 
+              (\(Tuple tid' gid') -> if tid' == tid then Tuple tid' toGroup else Tuple tid' gid') 
+            -- Reassign the current group directly here to avoid flickering
+            , currentGroup = toGroup
+            }
+          let newIndexInGroup = getPositionTabInGroup newTabIndex toGroup s.groupTabsPositions
+
+          deletedTab' <- H.query _tabs fromGroup $ H.request $ Tabs.TabDeleted tid
+          case deletedTab' of 
+               Just (Just (Tab tab)) -> 
+                 void $ H.query _tabs toGroup $ H.tell 
+                  $ Tabs.TabCreated $ Tab (tab { index = newIndexInGroup })
+               _ -> pure unit
+
+          H.raise $ SbMoveTab tid newTabIndex
+          H.raise $ SbActivateTab tid
+          H.raise $ SbChangeTabGroup tid (Just toGroup)
+
+        sidebarMoveTab 
+          :: TabId 
+          -> GroupId 
+          -> Int 
+          -> H.HalogenM State Action Slots SidebarEvent m Unit
+        sidebarMoveTab tid gid groupIndex = do
+           s <- H.get
            let 
-               dataTransfer = DE.dataTransfer dragEvent
-           dragData <- H.liftEffect $ DT.getData textPlain dataTransfer
-           case fromString dragData of
-                Nothing -> H.liftEffect $ log $ "sb: group drag over, got something else than a number: " <> dragData
-                Just tid -> do 
-                   H.modify_ _ { draggedCurrentGroup = Just gid }
-                   H.liftEffect $ log $ "sb: dragging " <> (show tid) <> " over " <> (show gid)
+               oldPosition = getPositionTab tid gid s.groupTabsPositions
+               newIndex = do 
+                  prevIdx <- oldPosition
+                  s.groupTabsPositions #
+                    A.mapWithIndex (Tuple) 
+                          >>> A.filter (\(Tuple _ (Tuple _ gid')) -> gid' == gid)
+                          >>> (flip A.index) groupIndex
+                          >>> map T.fst
 
-         DragEnd evt -> do 
-            H.modify_ _ { draggedCurrentGroup = Nothing }
-            H.liftEffect $ log $ "sb: drag end from bar component"
-
-         HandleTabsOutput gid output -> 
-           case output of 
-              OutputTabDragEnd tid' -> do 
-                   s <- H.get
-                   case Tuple tid' s.draggedCurrentGroup of 
-                        -- Only perform a move when we're dragging a tab onto a different group
-                        Tuple (Just tid) (Just draggedGroup) | s.currentGroup /= draggedGroup -> 
-                                 moveTabToGroup tid gid draggedGroup s
-                        _ -> pure unit
-
-                   H.modify_ _ { draggedCurrentGroup = Nothing }
-
-
-              TabsSidebarAction (SbMoveTab tid groupIndex) -> sidebarMoveTab tid gid groupIndex
-              TabsSidebarAction sbEvent -> H.raise sbEvent
-
-    where
-          findNextGroupId :: S.Set GroupId -> GroupId
-          findNextGroupId values = 
-            let GroupId(maxValue) = NES.max (NES.cons (GroupId 0) values)
-             in GroupId(maxValue + 1)
-
-          moveTabToGroup 
-            :: MonadEffect m => TabId 
-            -> GroupId 
-            -> GroupId 
-            -> State 
-            -> H.HalogenM State Action Slots SidebarEvent m Unit
-          moveTabToGroup tid fromGroup toGroup state = do
-            let 
-                -- XXX: The goal is to put it at the end, but if you:
-                --  - create a new group
-                --  - drag a tab from the first one to it
-                --  - drag it back to the first group
-                --  Then it will be at the beginning of the group, not the end.
-
-                -- Right now we only put it at the end of the list. 
-                -- We don't support dragging at a specific place.
-                newTabIndex = 
-                  fromMaybe (A.length state.groupTabsPositions) 
-                  $ lastWinTabIndexInGroup toGroup state.groupTabsPositions
-
-            s <- H.modify \s -> 
-              s { tabsToGroup = M.update (\_ -> Just toGroup) tid s.tabsToGroup
-              , groupTabsPositions = 
-                s.groupTabsPositions
-                <#> 
-                (\(Tuple tid' gid') -> if tid' == tid then Tuple tid' toGroup else Tuple tid' gid') 
-              -- Reassign the current group directly here to avoid flickering
-              , currentGroup = toGroup
-              }
-            let newIndexInGroup = getPositionTabInGroup newTabIndex toGroup s.groupTabsPositions
-
-            deletedTab' <- H.query _tabs fromGroup $ H.request $ Tabs.TabDeleted tid
-            case deletedTab' of 
-                 Just (Just (Tab tab)) -> 
-                   void $ H.query _tabs toGroup $ H.tell 
-                    $ Tabs.TabCreated $ Tab (tab { index = newIndexInGroup })
-                 _ -> pure unit
-
-            H.raise $ SbMoveTab tid newTabIndex
-            H.raise $ SbActivateTab tid
-
-          sidebarMoveTab 
-            :: TabId 
-            -> GroupId 
-            -> Int 
-            -> H.HalogenM State Action Slots SidebarEvent m Unit
-          sidebarMoveTab tid gid groupIndex = do
-             s <- H.get
-             let 
-                 oldPosition = getPositionTab tid gid s.groupTabsPositions
-                 newIndex = do 
-                    prevIdx <- oldPosition
-                    s.groupTabsPositions #
-                      A.mapWithIndex (Tuple) 
-                            >>> A.filter (\(Tuple _ (Tuple _ gid')) -> gid' == gid)
-                            >>> (flip A.index) groupIndex
-                            >>> map T.fst
-
-             -- Important: we ask Firefox to do the move, but we don't
-             -- perform it ourselves.  This means we don't update the state.
-             -- We will get back a TabMoved event that will then be
-             -- processed accordingly.
-             newIndex # maybe (pure unit) \idx -> H.raise $ SbMoveTab tid idx 
+           -- Important: we ask Firefox to do the move, but we don't
+           -- perform it ourselves.  This means we don't update the state.
+           -- We will get back a TabMoved event that will then be
+           -- processed accordingly.
+           newIndex # maybe (pure unit) \idx -> H.raise $ SbMoveTab tid idx 
 
  
-handleQuery :: forall act a m. Query a -> H.HalogenM State act Slots SidebarEvent m (Maybe a)
+handleQuery :: forall a m. MonadEffect m => Query a -> H.HalogenM State Action Slots SidebarEvent m (Maybe a)
 handleQuery = case _ of 
    TabsQuery q -> handleTabsQuery q
+
+   InitialTabsWithGroup tabs a -> do
+       -- Assign the tabs to their group and save the tabs positions
+       s <- H.modify \s ->
+         let 
+             tabIdGroup = tabs <#> \(TabWithGroup (Tab t) gid) -> Tuple t.id $ fromMaybe s.currentGroup gid
+          in
+             s { tabsToGroup = M.fromFoldable tabIdGroup, groupTabsPositions = tabIdGroup }
+
+       -- Create the missing groups
+       let 
+           existingGroups = M.keys s.groups
+           addedGroups = S.fromFoldable $ A.catMaybes $ tabs <#> \(TabWithGroup _ gid) -> gid
+           missingGroups = S.difference addedGroups existingGroups
+       void $ traverse (\gid -> H.modify_ $ createGroup $ Just gid) $ A.fromFoldable missingGroups
+
+       -- Update the browser state to assign tabs with a saved group to the current group
+       let setGroups = tabs # 
+              map (\(TabWithGroup (Tab t) gid) -> H.raise $ SbChangeTabGroup t.id (Just s.currentGroup)) 
+              <<< A.filter (\(TabWithGroup _ maybeGid) -> isNothing maybeGid)
+       void $ sequence setGroups
+
+       -- Initialize each child Tabs component with its tabs
+       let 
+            defaultTabs = tabs <#> \(TabWithGroup tab maybeGid) -> Tuple tab $ fromMaybe s.currentGroup maybeGid
+            groupedTabs = A.groupBy (\(Tuple _ gid1) (Tuple _ gid2) -> gid1 == gid2) defaultTabs
+       void $ traverse initializeGroup groupedTabs
+
+       -- Activate the right tab and its group
+       let activatedTab = defaultTabs # A.head <<< A.filter (\(Tuple (Tab t) _) -> t.active)
+       activatedTab # maybe (pure unit) \(Tuple (Tab t) gid) -> do
+         void $ tellChild gid $ Tabs.TabActivated Nothing t.id
+         handleAction $ UserSelectedGroup gid
+
+       pure (Just a)
+
+      where 
+            initializeGroup :: forall act. NonEmptyArray (Tuple Tab GroupId) -> H.HalogenM State act Slots SidebarEvent m Unit
+            initializeGroup groupedTabs = 
+              let 
+                  gid = T.snd $ NonEmptyArray.head groupedTabs
+              in 
+                  void $ tellChild gid $ Tabs.InitialTabList $ A.fromFoldable $ T.fst <$> groupedTabs
 
    GroupDeleted gid currentTid a -> do 
       H.modify_ \s -> 
@@ -288,18 +325,7 @@ handleQuery = case _ of
 handleTabsQuery :: forall act a m. Tabs.Query a -> H.HalogenM State act Slots SidebarEvent m (Maybe a)
 handleTabsQuery = case _ of
 
-    Tabs.InitialTabList tabs a -> do
-       s <- H.modify (\s -> 
-         let 
-             tabIdGroup = tabs <#> \(Tab t) -> Tuple t.id s.currentGroup
-          in
-         s { tabsToGroup = M.fromFoldable tabIdGroup , groupTabsPositions = tabIdGroup }
-       )
-       let activatedTab = tabs # A.filter (\(Tab t) -> t.active) >>> A.head
-       void $ tellChild s.currentGroup $ Tabs.InitialTabList tabs
-       activatedTab # maybe (pure unit) \(Tab t) -> 
-         void $ tellChild s.currentGroup $ Tabs.TabActivated Nothing t.id
-       pure (Just a)
+    Tabs.InitialTabList tabs a -> pure $ Just a
 
     Tabs.TabCreated (Tab tab) a -> do 
        s <- H.get
@@ -319,6 +345,7 @@ handleTabsQuery = case _ of
          }
 
        void $ tellChild newS.currentGroup $ Tabs.TabCreated newTab
+       H.raise $ SbChangeTabGroup tab.id (Just newS.currentGroup)
        pure (Just a)
 
     Tabs.TabDeleted tid reply -> do 
@@ -371,23 +398,21 @@ handleTabsQuery = case _ of
     Tabs.TabAttached tab a -> do 
        handleTabsQuery $ Tabs.TabCreated tab a
 
-    where
-        tellChild :: GroupId -> (H.Tell Tabs.Query) -> H.HalogenM State act Slots SidebarEvent m (Maybe Unit)
-        tellChild gid q = H.query _tabs gid $ H.tell q
-        -- 
-        -- requestChild :: GroupId -> (H.Request Tabs.Query) -> H.HalogenM State act Slots SidebarEvent M (Maybe a)
-        -- requestChild gid q = H.request 
+  where 
+    doOnTabGroup 
+      :: TabId 
+      -> (GroupId -> H.HalogenM State act Slots SidebarEvent m Unit) 
+      -> H.HalogenM State act Slots SidebarEvent m Unit
+    doOnTabGroup tabId f = do
+      { tabsToGroup } <- H.get
+      case M.lookup tabId tabsToGroup of 
+           Just groupId -> f groupId
+           Nothing -> pure unit
 
-        doOnTabGroup 
-          :: TabId 
-          -> (GroupId -> H.HalogenM State act Slots SidebarEvent m Unit) 
-          -> H.HalogenM State act Slots SidebarEvent m Unit
-        doOnTabGroup tabId f = do
-          { tabsToGroup } <- H.get
-          case M.lookup tabId tabsToGroup of 
-               Just groupId -> f groupId
-               Nothing -> pure unit
 
+
+tellChild :: forall act m. GroupId -> (H.Tell Tabs.Query) -> H.HalogenM State act Slots SidebarEvent m (Maybe Unit)
+tellChild gid q = H.query _tabs gid $ H.tell q
 
 getPositionTabInGroup
   :: Int
@@ -426,4 +451,16 @@ lastWinTabIndexInGroup gid =
     >>> A.filter (T.snd >>> T.snd >>> (==) gid)
     >>> map T.fst
     >>> A.head
+
+findNextGroupId :: S.Set GroupId -> GroupId
+findNextGroupId values = 
+  let GroupId(maxValue) = NES.max (NES.cons (GroupId 0) values)
+   in GroupId(maxValue + 1)
+
+createGroup :: (Maybe GroupId) -> State -> State
+createGroup mGid s =
+  let 
+      gid = fromMaybe' (\_ -> findNextGroupId $ M.keys s.groups) mGid
+  in
+     s { groups = M.insert gid { name: "new group", pos: M.size s.groups } s.groups }
 

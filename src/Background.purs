@@ -1,7 +1,7 @@
 module PureTabs.Background where
 
 import Browser.Runtime as Runtime
-import Browser.Tabs (Tab, TabId(..), WindowId(..))
+import Browser.Tabs (Tab(..), TabId, WindowId)
 import Browser.Tabs as BT
 import Browser.Tabs.OnActivated as OnActivated
 import Browser.Tabs.OnAttached as OnAttached
@@ -30,6 +30,7 @@ import Data.Monoid ((<>))
 import Data.Newtype (unwrap)
 import Data.Set as Set
 import Data.Show (show)
+import Data.Traversable (sequence)
 import Data.Unit (unit)
 import Effect (Effect)
 import Effect.Aff (launchAff_)
@@ -37,7 +38,8 @@ import Effect.Class (liftEffect)
 import Effect.Console (log)
 import Effect.Ref as Ref
 import Prelude (Unit, bind, ($), discard, (<<<), (<$>))
-import PureTabs.Model.Events (BackgroundEvent(..), SidebarEvent(..))
+import PureTabs.Browser.Sessions (getTabValue, removeTabValue, setTabValue)
+import PureTabs.Model.Events (BackgroundEvent(..), SidebarEvent(..), TabWithGroup(..))
 import PureTabs.Model.GlobalState as GS
 
 type Ports
@@ -159,12 +161,20 @@ onNewWindowId port stateRef listenerRef winId = do
   -- Send initial tabs
   latestState <- Ref.read stateRef
   M.lookup winId latestState.windows # foldMap \w ->
-      Runtime.postMessageJson port
-      $ BgInitialTabList
-      $ A.fromFoldable
-      $ w.positions
-      <#> (flip M.lookup w.tabs)
-      # A.catMaybes
+    let 
+        tabs = A.fromFoldable
+          $ w.positions
+          <#> (flip M.lookup w.tabs)
+          # A.catMaybes
+
+        tabsWithGid = 
+          tabs <#> \tab@(Tab t)->
+            getTabValue t.id "groupId" <#> \gid -> TabWithGroup tab gid
+
+    in
+      launchAff_ do
+         tabsWithGroup <- sequence tabsWithGid
+         liftEffect $ Runtime.postMessageJson port $ BgInitialTabList tabsWithGroup
     
 
   --  Add the new onMessage listener
@@ -204,6 +214,8 @@ manageSidebar ref winId port = case _ of
      let activeTabId = activeTab # A.head >>> (<$>) (unwrap >>> _.id)
      liftEffect $ Runtime.postMessageJson port $ BgGroupDeleted gid activeTabId
 
+  SbChangeTabGroup tid Nothing -> launchAff_ $ removeTabValue tid "groupId"
+  SbChangeTabGroup tid (Just gid) -> launchAff_ $ setTabValue tid "groupId" gid
 
   SbDetacheTab -> pure unit
   SbHasWindowId winId' -> pure unit

@@ -50,7 +50,7 @@ onBackgroundMsgConsumer query =
     $ case _ of
 
         BgInitialTabList tabs -> do
-          void $ query $ H.tell $ \q -> Bar.TabsQuery (Tabs.InitialTabList tabs q) 
+          void $ query $ H.tell $ \q -> Bar.InitialTabsWithGroup tabs q 
           pure Nothing
 
         BgTabCreated tab -> do
