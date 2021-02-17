@@ -463,7 +463,7 @@ lastWinTabIndexInGroup gid =
   A.mapWithIndex (Tuple)
     >>> A.filter (T.snd >>> T.snd >>> (==) gid)
     >>> map T.fst
-    >>> A.head
+    >>> A.last
 
 findNextGroupId :: S.Set GroupId -> GroupId
 findNextGroupId values = 
