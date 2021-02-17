@@ -15,8 +15,8 @@ import Browser.Windows (Window)
 import Browser.Windows.OnCreated as WinOnCreated
 import Browser.Windows.OnRemoved as WinOnRemoved
 import Control.Alt ((<#>))
-import Control.Alternative (pure, (*>))
-import Control.Bind ((=<<), (>>=))
+import Control.Alternative ((*>))
+import Control.Bind (map, (<*), (=<<), (>>=))
 import Control.Category ((>>>))
 import Data.Array as A
 import Data.CommutativeRing ((+))
@@ -25,7 +25,7 @@ import Data.Lens (_Just, set, view)
 import Data.Lens.At (at)
 import Data.List (List, foldMap)
 import Data.Map as M
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Monoid ((<>))
 import Data.Newtype (unwrap)
 import Data.Set as Set
@@ -33,14 +33,17 @@ import Data.Show (show)
 import Data.Traversable (sequence)
 import Data.Unit (unit)
 import Effect (Effect)
-import Effect.Aff (launchAff_)
+import Effect.Aff (Aff, launchAff_)
 import Effect.Class (liftEffect)
+import Effect.Class.Console (error)
 import Effect.Console (log)
 import Effect.Ref as Ref
-import Prelude (Unit, bind, ($), discard, (<<<), (<$>))
+import Prelude (Unit, bind, discard, pure, ($), (<$>), (<<<), (==), (/=))
 import PureTabs.Browser.Sessions (getTabValue, removeTabValue, setTabValue)
-import PureTabs.Model.Events (BackgroundEvent(..), SidebarEvent(..), TabWithGroup(..))
+import PureTabs.Browser.Storage (storageLocalGet, storageLocalSet)
+import PureTabs.Model.Events (BackgroundEvent(..), GroupMapping(..), SidebarEvent(..), TabWithGroup(..), groupMapping)
 import PureTabs.Model.GlobalState as GS
+import PureTabs.Model.Group (GroupId(..))
 
 type Ports
   = Ref.Ref (List Runtime.Port)
@@ -53,6 +56,10 @@ main = do
   log "starting background"
   launchAff_ do
      allTabs <- BT.browserQuery {}
+     groups <- retrieveGroups
+     case groups of
+          [] -> updateGroupsMapping $ createGroup (GroupId 0) "main"
+          _ -> pure unit
      liftEffect $ initializeBackground =<< (Ref.new $ GS.initialTabsToGlobalState allTabs)
 
 initializeBackground :: Ref.Ref GS.GlobalState -> Effect Unit
@@ -174,13 +181,50 @@ onNewWindowId port stateRef listenerRef winId = do
     in
       launchAff_ do
          tabsWithGroup <- sequence tabsWithGid
-         liftEffect $ Runtime.postMessageJson port $ BgInitialTabList tabsWithGroup
+         groups <- retrieveGroups
+         liftEffect $ Runtime.postMessageJson port $ BgInitialTabList groups tabsWithGroup
     
 
   --  Add the new onMessage listener
   sidebarListener <- Runtime.onMessageJsonAddListener port $ manageSidebar stateRef winId port
   onDisconnectListener <- mkListenerUnit $ onDisconnect stateRef winId sidebarListener
   Runtime.portOnDisconnect port onDisconnectListener
+
+
+retrieveGroups :: Aff (Array GroupMapping)
+retrieveGroups = do 
+  (groups :: (Maybe (Array GroupMapping))) <- storageLocalGet "groups"
+  case groups of
+       Just groups' -> pure groups'
+       Nothing -> pure [] <* error "couldn't get key `groups` from local storage"
+
+type GroupsUpdate = Array GroupMapping -> Array GroupMapping
+
+updateGroupsMapping :: GroupsUpdate -> Aff Unit
+updateGroupsMapping updateGroups = do
+  groups <- retrieveGroups
+  let updatedGroups = updateGroups groups
+  storageLocalSet "groups" $ updatedGroups
+
+
+createGroup :: GroupId -> String -> GroupsUpdate
+createGroup gid name = ((flip A.snoc) $ groupMapping gid name) <<< A.filter (unwrap >>> _.groupId >>> (/=) gid)
+
+renameGroup :: GroupId -> String -> GroupsUpdate
+renameGroup gid newName = 
+  map $ case _ of 
+             GroupMapping { groupId: gid' } | gid == gid' -> groupMapping gid newName
+             other -> other
+
+moveGroup :: GroupId -> Int -> GroupsUpdate
+moveGroup gid to arr =
+  fromMaybe arr $ do
+    from <- A.findIndex (unwrap >>> _.groupId >>> (==) gid) arr
+    group <- arr A.!! from
+    A.deleteAt from arr >>= A.insertAt to group
+
+deleteGroup :: GroupId -> GroupsUpdate
+deleteGroup gid = A.filter (unwrap >>> _.groupId >>> (/=) gid)
 
 manageSidebar :: StateRef -> WindowId -> Runtime.Port -> SidebarEvent -> Effect Unit
 manageSidebar ref winId port = case _ of
@@ -213,9 +257,14 @@ manageSidebar ref winId port = case _ of
      activeTab <- BT.browserQuery { windowId: unwrap winId, active: true }
      let activeTabId = activeTab # A.head >>> (<$>) (unwrap >>> _.id)
      liftEffect $ Runtime.postMessageJson port $ BgGroupDeleted gid activeTabId
+     updateGroupsMapping $ deleteGroup gid
 
   SbChangeTabGroup tid Nothing -> launchAff_ $ removeTabValue tid "groupId"
   SbChangeTabGroup tid (Just gid) -> launchAff_ $ setTabValue tid "groupId" gid
+
+  SbCreatedGroup gid name -> launchAff_ $ updateGroupsMapping $ createGroup gid name
+  SbRenamedGroup gid name -> launchAff_ $ updateGroupsMapping $ renameGroup gid name
+  SbMovedGroup gid pos -> launchAff_ $ updateGroupsMapping $ moveGroup gid pos
 
   SbDetacheTab -> pure unit
   SbHasWindowId winId' -> pure unit

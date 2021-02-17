@@ -49,8 +49,8 @@ onBackgroundMsgConsumer query =
   CR.consumer
     $ case _ of
 
-        BgInitialTabList tabs -> do
-          void $ query $ H.tell $ \q -> Bar.InitialTabsWithGroup tabs q 
+        BgInitialTabList groups tabs -> do
+          void $ query $ H.tell $ \q -> Bar.InitialTabsWithGroup groups tabs q 
           pure Nothing
 
         BgTabCreated tab -> do

@@ -1,7 +1,6 @@
 module PureTabs.Sidebar.Bar where
 
 import Browser.Tabs (Tab(..), TabId)
-import Control.Alternative (pure)
 import Control.Bind (bind, discard, map, void, (<#>), (>>=))
 import Data.Array ((:))
 import Data.Array as A
@@ -10,10 +9,10 @@ import Data.Array.NonEmpty as NonEmptyArray
 import Data.Eq ((/=))
 import Data.Function (($))
 import Data.Map as M
-import Data.Maybe (Maybe(..), fromMaybe, fromMaybe', isNothing, maybe)
+import Data.Maybe (Maybe(..), fromMaybe, fromMaybe', maybe)
 import Data.MediaType.Common (textPlain)
 import Data.Number (fromString)
-import Data.Set (toUnfoldable, Set, fromFoldable, difference) as S
+import Data.Set (Set, member, toUnfoldable) as S
 import Data.Set.NonEmpty (cons, max) as NES
 import Data.Symbol (SProxy(..))
 import Data.Traversable (sequence, traverse)
@@ -27,8 +26,8 @@ import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
-import Prelude (flip, show, (<$>), (#), (&&), (+), (-), (<<<), (<>), (==), (>), (>>>))
-import PureTabs.Model.Events (SidebarEvent(..), TabWithGroup(..))
+import Prelude (flip, pure, show, (#), (&&), (+), (-), (<$>), (<<<), (<>), (==), (>), (>>>))
+import PureTabs.Model.Events (GroupMapping(..), SidebarEvent(..), TabWithGroup(..))
 import PureTabs.Model.Group (GroupId(..))
 import PureTabs.Sidebar.Component.GroupName as GroupName
 import PureTabs.Sidebar.Component.TopMenu as TopMenu
@@ -39,6 +38,8 @@ import Web.HTML.Event.DataTransfer as DT
 import Web.HTML.Event.DragEvent as DE
 
 
+-- TODO: correctly use `pos` when adding or deleting a group (i.e. making sure
+-- the pos are contiguous from 0 to #groups - 1)
 type Group
   = { name :: String
     , pos :: Int
@@ -65,20 +66,19 @@ data Action
 
 data Query a
   = TabsQuery (Tabs.Query a)
-  | InitialTabsWithGroup (Array TabWithGroup) a
+  | InitialTabsWithGroup (Array GroupMapping) (Array TabWithGroup) a
   | GroupDeleted GroupId (Maybe TabId) a
+
+initialGroup :: M.Map GroupId Group
+initialGroup = M.fromFoldable [ Tuple (GroupId 0) { name: "main", pos: 0 } ]
 
 initialState :: forall i. i -> State
 initialState _ =
-  let
-    firstGroupId = GroupId 0
-  in
-    { 
-      groups: M.fromFoldable [ Tuple firstGroupId { name: "main", pos: 0 } ]
-      , tabsToGroup: M.empty
-      , groupTabsPositions : []
-      , currentGroup: firstGroupId 
-      , draggedCurrentGroup: Nothing
+  { groups: initialGroup
+    , tabsToGroup: M.empty
+    , groupTabsPositions : []
+    , currentGroup: GroupId 0
+    , draggedCurrentGroup: Nothing
     }
 
 type Slots
@@ -120,6 +120,7 @@ component =
                TopMenu.ChangedDeletion value -> UserChangedDeletion value
         )
 
+        -- TODO: order groups by `pos`
         barListGroup = HH.div [ HP.id_ "bar-list" ] [HH.ul [ HP.id_ "bar-list-group"] $ 
           (M.toUnfoldable state.groups) <#> \(Tuple gid g) -> renderGroup gid (gid == currentGroupShown) g
         ]
@@ -154,11 +155,15 @@ handleAction =
        UserSelectedGroup gid -> do
           H.modify_ _ { currentGroup = gid }
 
-       UserRenameGroup gid newName -> 
+       UserRenameGroup gid newName -> do
           H.modify_ \s -> s { groups = M.update (\g -> Just $ g { name = newName }) gid s.groups }
+          H.raise $ SbRenamedGroup gid newName
 
        UserCreatedGroup -> do
-         H.modify_ $ createGroup Nothing
+          s <- H.get
+          let Tuple gid newGroup = createGroup Nothing s
+          H.modify_ $ insertGroup gid newGroup
+          H.raise $ SbCreatedGroup gid newGroup.name
 
        UserChangedDeletion value -> void $ H.queryAll _groupName $ H.tell $ GroupName.DeletionEnabled value
 
@@ -270,35 +275,43 @@ handleQuery :: forall a m. MonadEffect m => Query a -> H.HalogenM State Action S
 handleQuery = case _ of 
    TabsQuery q -> handleTabsQuery q
 
-   InitialTabsWithGroup tabs a -> do
+   InitialTabsWithGroup groups tabs a -> do
        -- Assign the tabs to their group and save the tabs positions
        s <- H.modify \s ->
          let 
-             tabIdGroup = tabs <#> \(TabWithGroup (Tab t) gid) -> Tuple t.id $ fromMaybe s.currentGroup gid
+             newGroups = 
+               case groups of
+                    [] -> initialGroup
+                    newGroups' -> 
+                      M.fromFoldable $ 
+                        A.mapWithIndex 
+                        (\idx (GroupMapping g) -> Tuple g.groupId { name: g.name, pos: idx})
+                        newGroups'
+
+             existingGroups = M.keys newGroups
+
+             tabIdGroup = tabs <#> 
+                \(TabWithGroup (Tab t) gid) -> 
+                    Tuple t.id $ maybe s.currentGroup (\gid' -> if S.member gid' existingGroups then gid' else s.currentGroup) gid
           in
-             s { tabsToGroup = M.fromFoldable tabIdGroup, groupTabsPositions = tabIdGroup }
+             s { groups = newGroups, tabsToGroup = M.fromFoldable tabIdGroup, groupTabsPositions = tabIdGroup }
 
-       -- Create the missing groups
+       -- Update the browser state to re-assign correctly all the tabs
+
        let 
-           existingGroups = M.keys s.groups
-           addedGroups = S.fromFoldable $ A.catMaybes $ tabs <#> \(TabWithGroup _ gid) -> gid
-           missingGroups = S.difference addedGroups existingGroups
-       void $ traverse (\gid -> H.modify_ $ createGroup $ Just gid) $ A.fromFoldable missingGroups
-
-       -- Update the browser state to assign tabs with a saved group to the current group
-       let setGroups = tabs # 
-              map (\(TabWithGroup (Tab t) gid) -> H.raise $ SbChangeTabGroup t.id (Just s.currentGroup)) 
-              <<< A.filter (\(TabWithGroup _ maybeGid) -> isNothing maybeGid)
+           (groupsTupled :: Array (Tuple TabId GroupId)) = M.toUnfoldableUnordered s.tabsToGroup
+           setGroups = groupsTupled <#>
+              (\(Tuple tid gid) -> H.raise $ SbChangeTabGroup tid (Just gid)) 
        void $ sequence setGroups
 
-       -- Initialize each child Tabs component with its tabs
+       -- Initialize each child tabs component with its tabs
        let 
-            defaultTabs = tabs <#> \(TabWithGroup tab maybeGid) -> Tuple tab $ fromMaybe s.currentGroup maybeGid
-            groupedTabs = A.groupBy (\(Tuple _ gid1) (Tuple _ gid2) -> gid1 == gid2) defaultTabs
+            tabsGroups = tabs <#> \(TabWithGroup tab@(Tab t) _) -> Tuple tab $ fromMaybe s.currentGroup (M.lookup t.id s.tabsToGroup)
+            groupedTabs = A.groupBy (\(Tuple _ gid1) (Tuple _ gid2) -> gid1 == gid2) tabsGroups
        void $ traverse initializeGroup groupedTabs
 
        -- Activate the right tab and its group
-       let activatedTab = defaultTabs # A.head <<< A.filter (\(Tuple (Tab t) _) -> t.active)
+       let activatedTab = tabsGroups # A.head <<< A.filter (\(Tuple (Tab t) _) -> t.active)
        activatedTab # maybe (pure unit) \(Tuple (Tab t) gid) -> do
          void $ tellChild gid $ Tabs.TabActivated Nothing t.id
          handleAction $ UserSelectedGroup gid
@@ -457,10 +470,13 @@ findNextGroupId values =
   let GroupId(maxValue) = NES.max (NES.cons (GroupId 0) values)
    in GroupId(maxValue + 1)
 
-createGroup :: (Maybe GroupId) -> State -> State
+createGroup :: (Maybe GroupId) -> State -> Tuple GroupId Group
 createGroup mGid s =
   let 
       gid = fromMaybe' (\_ -> findNextGroupId $ M.keys s.groups) mGid
   in
-     s { groups = M.insert gid { name: "new group", pos: M.size s.groups } s.groups }
+    Tuple gid { name: "new group", pos: M.size s.groups }
+
+insertGroup :: GroupId -> Group -> State -> State
+insertGroup gid group s = s { groups = M.insert gid group s.groups }
 

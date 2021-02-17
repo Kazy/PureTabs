@@ -2,12 +2,15 @@ module PureTabs.Model.Events (
   BackgroundEvent(..)
   , SidebarEvent(..)
   , TabWithGroup(..)
+  , GroupMapping(..)
+  , groupMapping
   ) where
 
 import Browser.Tabs (Tab, TabId, WindowId)
 import Browser.Tabs.OnUpdated (ChangeInfo)
 import Data.Generic.Rep (class Generic)
 import Data.Generic.Rep.Show (genericShow)
+import Data.Newtype (class Newtype)
 import Data.Maybe (Maybe)
 import Data.Show (class Show)
 import PureTabs.Model.Group (GroupId)
@@ -29,8 +32,30 @@ instance encodeTabWithGroup :: Encode TabWithGroup where
 instance decodeTabWithGroup :: Decode TabWithGroup where
   decode x = genericDecode (defaultOptions { unwrapSingleConstructors = true }) x
 
+
+newtype GroupMapping
+  = GroupMapping { groupId :: GroupId
+                 , name :: String
+                 }
+
+groupMapping :: GroupId -> String -> GroupMapping
+groupMapping gid name = GroupMapping { groupId: gid, name: name }
+
+derive instance genGroupMapping :: Generic GroupMapping _
+derive instance newtypeGroupMapping :: Newtype GroupMapping _
+
+instance showGroupMapping :: Show GroupMapping where 
+  show = genericShow
+
+instance encodeGroupMapping :: Encode GroupMapping where
+  encode x = genericEncode (defaultOptions { unwrapSingleConstructors = true }) x
+
+instance decodeGroupMapping :: Decode GroupMapping where
+  decode x = genericDecode (defaultOptions { unwrapSingleConstructors = true }) x
+
+
 data BackgroundEvent
-  = BgInitialTabList (Array TabWithGroup)
+  = BgInitialTabList (Array GroupMapping) (Array TabWithGroup)
   | BgTabCreated Tab
   | BgTabDeleted TabId
   | BgTabUpdated TabId ChangeInfo Tab
@@ -55,6 +80,9 @@ data SidebarEvent
   | SbSelectedGroup (Array TabId)
   | SbDeletedGroup GroupId (Array TabId)
   | SbChangeTabGroup TabId (Maybe GroupId)
+  | SbCreatedGroup GroupId String
+  | SbRenamedGroup GroupId String
+  | SbMovedGroup GroupId Int
 
 derive instance genSidebarEvent :: Generic SidebarEvent _
 
