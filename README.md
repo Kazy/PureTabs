@@ -18,7 +18,7 @@ maintainable way. Any criticism is welcome.
   - [x] Using Firefox's tabs
   - [ ] Drag and dropping using PureTabs directly.
 - [ ] Actually show tabs as a tree
-- [ ] Session save/import
+- [x] Session save/import
 - [x] Tab groups
 - [x] Tab hiding
 - [ ] Tests
