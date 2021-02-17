@@ -1,17 +1,23 @@
 module PureTabs.Sidebar.Bar where
 
 import Browser.Tabs (Tab(..), TabId)
+import Browser.Utils (unsafeLog)
 import Control.Bind (bind, discard, map, void, (<#>), (>>=))
 import Data.Array ((:))
 import Data.Array as A
 import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Array.NonEmpty as NonEmptyArray
-import Data.Eq ((/=))
+import Data.Eq (class Eq, (/=))
+import Data.Foldable (fold, foldr)
 import Data.Function (($))
 import Data.Map as M
 import Data.Maybe (Maybe(..), fromMaybe, fromMaybe', maybe)
 import Data.MediaType.Common (textPlain)
+import Data.Monoid (class Monoid, mempty)
 import Data.Number (fromString)
+import Data.Ord (class Ord, compare, comparing)
+import Data.Ordering (Ordering)
+import Data.Ordering as Ordering
 import Data.Set (Set, member, toUnfoldable) as S
 import Data.Set.NonEmpty (cons, max) as NES
 import Data.Symbol (SProxy(..))
@@ -20,7 +26,7 @@ import Data.Tuple (Tuple(..))
 import Data.Tuple as T
 import Data.Unit (Unit, unit)
 import Effect.Aff.Class (class MonadAff)
-import Effect.Class (class MonadEffect)
+import Effect.Class (class MonadEffect, liftEffect)
 import Effect.Console (log)
 import Halogen as H
 import Halogen.HTML as HH
@@ -297,7 +303,6 @@ handleQuery = case _ of
              s { groups = newGroups, tabsToGroup = M.fromFoldable tabIdGroup, groupTabsPositions = tabIdGroup }
 
        -- Update the browser state to re-assign correctly all the tabs
-
        let 
            (groupsTupled :: Array (Tuple TabId GroupId)) = M.toUnfoldableUnordered s.tabsToGroup
            setGroups = groupsTupled <#>
@@ -307,7 +312,7 @@ handleQuery = case _ of
        -- Initialize each child tabs component with its tabs
        let 
             tabsGroups = tabs <#> \(TabWithGroup tab@(Tab t) _) -> Tuple tab $ fromMaybe s.currentGroup (M.lookup t.id s.tabsToGroup)
-            groupedTabs = A.groupBy (\(Tuple _ gid1) (Tuple _ gid2) -> gid1 == gid2) tabsGroups
+            groupedTabs = A.groupBy (eqBy T.snd) (sortByKeyIndex T.snd tabsGroups)
        void $ traverse initializeGroup groupedTabs
 
        -- Activate the right tab and its group
@@ -480,3 +485,16 @@ createGroup mGid s =
 insertGroup :: GroupId -> Group -> State -> State
 insertGroup gid group s = s { groups = M.insert gid group s.groups }
 
+
+-- | Given a mapping function from a to b, where Eq is defined for b, return a
+-- | comparison function.
+eqBy :: forall a b. Eq b => (a -> b) -> (a -> a -> Boolean)
+eqBy f = \a b -> f a == f b
+
+-- | Given a mapping function from a to b where Ord is defined for b, sort the
+-- | array by the mapping function, tie-breaking using the index.
+sortByKeyIndex :: forall a b. Ord b => (a -> b) -> Array a -> Array a
+sortByKeyIndex cmp = A.mapWithIndex Tuple >>> A.sortBy compareKey >>> map T.snd
+  where compareGiven = comparing (T.snd >>> cmp)
+        compareIdx = comparing T.fst
+        compareKey = fold [compareGiven, compareIdx]
