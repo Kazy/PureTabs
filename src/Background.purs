@@ -55,15 +55,16 @@ main :: Effect Unit
 main = do
   log "starting background"
   launchAff_ do
-     allTabs <- BT.browserQuery {}
      groups <- retrieveGroups
      case groups of
           [] -> updateGroupsMapping $ createGroup (GroupId 0) "main"
           _ -> pure unit
+     allTabs <- BT.browserQuery {}
      liftEffect $ initializeBackground =<< (Ref.new $ GS.initialTabsToGlobalState allTabs)
 
 initializeBackground :: Ref.Ref GS.GlobalState -> Effect Unit
 initializeBackground ref = do
+  (mkListenerOne $ onConnect ref) >>= Runtime.onConnectAddListener
   (mkListenerOne $ onWindowCreated ref) >>= WinOnCreated.addListener
   (mkListenerOne $ onWindowRemoved ref) >>= WinOnRemoved.addListener
   onTabCreated ref # OnCreated.addListener
@@ -73,7 +74,6 @@ initializeBackground ref = do
   (mkListenerTwo $ onTabDetached ref) >>= OnDetached.addListener
   (mkListenerTwo $ onTabAttached ref) >>= OnAttached.addListener
   (mkListenerTwo $ onTabMoved ref) >>= OnMoved.addListener
-  (mkListenerOne $ onConnect ref) >>= Runtime.onConnectAddListener
 
 onWindowCreated :: StateRef -> Window -> Effect Unit
 onWindowCreated ref { id: winId } = do

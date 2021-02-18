@@ -48,3 +48,10 @@ exports.portEquality = function (p1) {
     return p1 === p2
   }
 }
+
+
+exports.portHasError = function(port) {
+  return function () {
+    return port.error != null;
+  };
+};

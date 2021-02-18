@@ -6,31 +6,59 @@ import Browser.Tabs.OnUpdated (ChangeInfo(..))
 import Browser.Windows (getCurrent)
 import Control.Alt (void)
 import Control.Alternative (pure)
+import Control.Bind ((<*), (*>))
 import Control.Coroutine as CR
 import Control.Coroutine.Aff (emit)
 import Control.Coroutine.Aff as CRA
 import Control.Monad.Error.Class (throwError)
 import Data.Function (($))
 import Data.Maybe (Maybe(..))
+import Data.Show (show)
+import Data.Time.Duration (Milliseconds(..))
 import Data.Unit (Unit, unit)
 import Effect (Effect)
-import Effect.Aff (Aff, error)
+import Effect.Aff (Aff, delay, error)
 import Effect.Class (liftEffect)
+import Effect.Console (log)
 import Halogen as H
 import Halogen.Aff as HA
 import Halogen.VDom.Driver (runUI)
-import Prelude (bind, discard)
+import Prelude (bind, discard, (*), (-), (<>))
 import PureTabs.Model.Events (BackgroundEvent(..), SidebarEvent(..))
 import PureTabs.Sidebar.Bar as Bar
 import PureTabs.Sidebar.Tabs as Tabs
 import Web.DOM.ParentNode (QuerySelector(..))
 
+
+-- | Try to connect the port and wait for the connection to succeed.
+tryConnectPort :: Aff Runtime.Port
+tryConnectPort = loopConnect 5 (Milliseconds 50.0)
+  where 
+        loopConnect :: Int -> Milliseconds -> Aff Runtime.Port
+        loopConnect 0 _ = 
+          throwError $ error "[sb] couldn't connect to the background extesion :("
+        loopConnect attemptLeft timeout = do
+          liftEffect $ 
+            log $ "[sb] attempt to connect to background extension (left: " <> (show attemptLeft) <> ")"
+          port <- liftEffect $ Runtime.connect
+          portHasError <- liftEffect $ Runtime.portHasError port
+          if portHasError then
+            (delay timeout) *> loopConnect (attemptLeft - 1) (multiplyMs 2.0 timeout)
+          else
+            pure port
+
+        multiplyMs by (Milliseconds t) = Milliseconds (t * by)
+
+
+
 main :: Effect Unit
 main = do
-  port <- Runtime.connect
+  log "[sb] starting"
   HA.runHalogenAff do
+    port <- tryConnectPort
     currentWindow <- getCurrent
-    liftEffect $ Runtime.postMessageJson port $ SbHasWindowId currentWindow.id
+    liftEffect $ Runtime.postMessageJson port (SbHasWindowId currentWindow.id)
+        <* log "[sb] windowId sent"
     content' <- HA.selectElement (QuerySelector "#content")
     io <- case content' of
       Nothing -> throwError (error "Could not find #content")

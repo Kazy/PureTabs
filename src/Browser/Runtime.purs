@@ -1,4 +1,15 @@
-module Browser.Runtime (Port, connect, onConnectAddListener, portOnDisconnect, postMessage, postMessageJson, onMessageAddListener, onMessageJsonAddListener, onMessageRemoveListener) where
+module Browser.Runtime (
+  Port,
+  connect,
+  onConnectAddListener,
+  portOnDisconnect,
+  postMessage,
+  postMessageJson,
+  onMessageAddListener,
+  onMessageJsonAddListener,
+  onMessageRemoveListener,
+  portHasError
+) where
 
 import Browser.Utils (mkListenerOne, Listener, UnregisteredListener)
 import Control.Alt (map)
@@ -33,6 +44,8 @@ postMessageJson port d = postMessage port $ genericEncodeJSON (defaultOptions { 
 foreign import portOnDisconnect :: Port -> Listener Unit -> Effect Unit
 
 foreign import onMessageAddListener :: forall a. Port -> Listener a -> Effect Unit
+
+foreign import portHasError :: Port -> Effect Boolean
 
 onMessageJsonAddListener :: forall a rep. Generic a rep => GenericDecode rep => Port -> UnregisteredListener a -> Effect (Listener String)
 onMessageJsonAddListener port f = do 
