@@ -1,6 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Pure Tabs",
+  "id": "774f8824-e08c-4412-8b02-686978de73f5",
   "description": "Tree tabs extension written in PureScript",
   "version": "0.1.0",
   "homepage_url": "https://github.com/Kazy",
