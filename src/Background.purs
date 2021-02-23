@@ -20,30 +20,30 @@ import Control.Bind (map, (=<<), (>>=))
 import Control.Category ((>>>))
 import Data.Array as A
 import Data.CommutativeRing ((+))
-import Data.Foldable (sequence_)
 import Data.Function (flip, (#))
 import Data.Lens (_Just, set, view)
 import Data.Lens.At (at)
 import Data.List (List, foldMap)
 import Data.Map as M
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Monoid ((<>))
 import Data.Newtype (unwrap)
 import Data.Set as Set
 import Data.Show (show)
-import Data.Traversable (sequence)
+import Data.Traversable (sequence, traverse_)
+import Data.Tuple (Tuple(..))
 import Data.Unit (unit)
 import Effect (Effect)
-import Effect.Aff (launchAff_)
+import Effect.Aff (Aff, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
 import Effect.Ref as Ref
 import Prelude (Unit, bind, discard, pure, ($), (<$>), (<<<))
-import PureTabs.Browser.Sessions (getTabValue, getWindowValue, removeTabValue, setTabValue, setWindowValue)
+import PureTabs.Browser.Sessions (getTabValue, removeTabValue, setTabValue)
 import PureTabs.Model.BackgroundEvent (BackgroundEvent(..))
 import PureTabs.Model.GlobalState as GS
 import PureTabs.Model.Group (GroupId(..))
-import PureTabs.Model.GroupMapping (createGroup, deleteGroup, moveGroup, renameGroup, retrieveGroups, retrieveGroupsAt, updateGroupsMapping)
+import PureTabs.Model.GroupMapping (GroupData, createGroup, deleteGroup, moveGroup, renameGroup, retrieveGroups, updateGroupsMapping)
 import PureTabs.Model.SidebarEvent (SidebarEvent(..))
 import PureTabs.Model.TabWithGroup (TabWithGroup(..))
 
@@ -55,19 +55,39 @@ type StateRef = Ref.Ref GS.GlobalState
 
 main :: Effect Unit
 main = do
-  log "starting background"
+  log "[bg] starting"
   launchAff_ do
      allTabs <- BT.browserQuery {}
-     groups <- retrieveGroups
-     case groups of
-          [] -> sequence_ $ allTabs # 
-                  map (\(Tab t) -> t.windowId)
-                  >>> Set.fromFoldable
-                  >>> A.fromFoldable
-                  >>> map (\winId -> updateGroupsMapping $ createGroup winId (GroupId 0) "main")
-
-          _ -> pure unit
+     groups <- M.fromFoldable <$> setWindowsGroups allTabs
+     setTabsGroups groups allTabs
+     liftEffect $ log "[bg] done initializing groups"
      liftEffect $ initializeBackground =<< (Ref.new $ GS.initialTabsToGlobalState allTabs)
+
+  where
+        -- | For each window found, set a default group if it doesn't exist
+        setWindowsGroups :: Array Tab -> Aff (Array (Tuple WindowId (Array GroupData)))
+        setWindowsGroups tabs = sequence $ tabs # 
+           map (unwrap >>> _.windowId)
+           >>> Set.fromFoldable
+           >>> A.fromFoldable
+           -- Retrieve the groups for each existing window, and if they don't exist, create a group
+           >>> map \winId -> retrieveGroups winId >>= 
+             case _ of 
+                  [] -> updateGroupsMapping winId (createGroup (GroupId 0) "main") 
+                      *> retrieveGroups winId >>= \groups' -> pure $ Tuple winId groups'
+                  groups' -> pure $ Tuple winId groups'
+
+        -- | For each tab, set a default tab if it doesn't exist
+        setTabsGroups :: M.Map WindowId (Array GroupData) -> Array Tab ->  Aff Unit
+        setTabsGroups winToGroups tabs = 
+          let 
+              defaultGroupIdPerWin = winToGroups # map (A.head >>> maybe (GroupId 0) (unwrap >>> _.groupId))
+              defaultGroup winId = fromMaybe (GroupId 0) $ M.lookup winId defaultGroupIdPerWin
+          in
+              tabs # traverse_ \(Tab t) -> (getTabValue t.id "groupId" :: Aff (Maybe GroupId)) >>= 
+                case _ of 
+                     Nothing -> setTabValue t.id "groupId" $ defaultGroup t.windowId
+                     _ -> pure unit
 
 initializeBackground :: Ref.Ref GS.GlobalState -> Effect Unit
 initializeBackground ref = do
@@ -188,7 +208,7 @@ onNewWindowId port stateRef listenerRef winId = do
     in
       launchAff_ do
          tabsWithGroup <- sequence tabsWithGid
-         groups <- retrieveGroupsAt winId
+         groups <- retrieveGroups winId
          liftEffect $ Runtime.postMessageJson port $ BgInitialTabList groups tabsWithGroup
     
 
@@ -229,14 +249,14 @@ manageSidebar ref winId port = case _ of
      activeTab <- BT.browserQuery { windowId: unwrap winId, active: true }
      let activeTabId = activeTab # A.head >>> (<$>) (unwrap >>> _.id)
      liftEffect $ Runtime.postMessageJson port $ BgGroupDeleted gid activeTabId
-     updateGroupsMapping $ deleteGroup winId gid
+     updateGroupsMapping winId $ deleteGroup gid
 
   SbChangeTabGroup tid Nothing -> launchAff_ $ removeTabValue tid "groupId"
   SbChangeTabGroup tid (Just gid) -> launchAff_ $ setTabValue tid "groupId" gid
 
-  SbCreatedGroup gid name -> launchAff_ $ updateGroupsMapping $ createGroup winId gid name
-  SbRenamedGroup gid name -> launchAff_ $ updateGroupsMapping $ renameGroup winId gid name
-  SbMovedGroup gid pos -> launchAff_ $ updateGroupsMapping $ moveGroup winId gid pos
+  SbCreatedGroup gid name -> launchAff_ $ updateGroupsMapping winId $ createGroup gid name
+  SbRenamedGroup gid name -> launchAff_ $ updateGroupsMapping winId $ renameGroup gid name
+  SbMovedGroup gid pos -> launchAff_ $ updateGroupsMapping winId $ moveGroup gid pos
 
   SbDetacheTab -> pure unit
   SbHasWindowId winId' -> pure unit

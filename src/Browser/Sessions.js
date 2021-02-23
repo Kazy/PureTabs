@@ -15,3 +15,16 @@ exports["getTabValueImpl"] = function(Just, Nothing, tabId, key) {
       else return Just(val);
     });
 };
+
+
+exports["setWindowValueImpl"] = function(windowId, key, value) {
+  return browser.sessions.setWindowValue(windowId, key, value);
+};
+
+exports["removeWindowValueImpl"] = function(windowId, key) {
+  return browser.sessions.removeWindowValue(windowId, key);
+};
+
+exports["getWindowValueImpl"] = function(windowId, key) {
+  return browser.sessions.getWindowValue(windowId, key);
+};
