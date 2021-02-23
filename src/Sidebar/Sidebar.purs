@@ -20,6 +20,8 @@ import Effect (Effect)
 import Effect.Aff (Aff, delay, error)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
+import Effect.Console as Log
+import Effect.Exception (message)
 import Halogen as H
 import Halogen.Aff as HA
 import Halogen.VDom.Driver (runUI)
@@ -51,6 +53,7 @@ trySendWindowId windowId = loopConnect 5 (Milliseconds 50.0)
           success <- try $ liftEffect tryConnect
           case success of 
                Left err -> do
+                 liftEffect $ Log.error $ message err
                  delay timeout 
                  loopConnect (attemptLeft - 1) (multiplyMs 2.0 timeout)
                Right port -> pure port
