@@ -1,12 +1,8 @@
 "use strict";
 
-exports["storageLocalGetImpl"] = function(key, Just, Nothing) {
+exports["storageLocalGetImpl"] = function(key) {
   return browser.storage.local.get(key).then(obj => {
-    if (obj === undefined || obj[key] === undefined) {
-      return Nothing;
-    } else {
-      return Just(obj[key]);
-    }
+    return obj[key];
   });
 }
 

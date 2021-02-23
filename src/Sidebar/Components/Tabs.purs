@@ -33,7 +33,7 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Prelude (negate, sub)
 import PureTabs.Browser.Dom.Element (scrollIntoView)
-import PureTabs.Model.Events (SidebarEvent(..))
+import PureTabs.Model.SidebarEvent (SidebarEvent(..))
 import Sidebar.Utils (moveElem)
 import Web.Event.Event (Event)
 import Web.Event.Event as Event

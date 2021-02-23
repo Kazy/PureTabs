@@ -1,5 +1,5 @@
 module Browser.Tabs (
-  WindowId
+  WindowId(..)
   , TabId(..)
   , Tab(..)
   , MoveProperties

@@ -1,23 +1,18 @@
 module PureTabs.Sidebar.Bar where
 
 import Browser.Tabs (Tab(..), TabId)
-import Browser.Utils (unsafeLog)
+import Browser.Utils (eqBy, sortByKeyIndex)
 import Control.Bind (bind, discard, map, void, (<#>), (>>=))
 import Data.Array ((:))
 import Data.Array as A
 import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Array.NonEmpty as NonEmptyArray
-import Data.Eq (class Eq, (/=))
-import Data.Foldable (fold, foldr)
+import Data.Eq ((/=))
 import Data.Function (($))
 import Data.Map as M
 import Data.Maybe (Maybe(..), fromMaybe, fromMaybe', maybe)
 import Data.MediaType.Common (textPlain)
-import Data.Monoid (class Monoid, mempty)
 import Data.Number (fromString)
-import Data.Ord (class Ord, compare, comparing)
-import Data.Ordering (Ordering)
-import Data.Ordering as Ordering
 import Data.Set (Set, member, toUnfoldable) as S
 import Data.Set.NonEmpty (cons, max) as NES
 import Data.Symbol (SProxy(..))
@@ -26,15 +21,17 @@ import Data.Tuple (Tuple(..))
 import Data.Tuple as T
 import Data.Unit (Unit, unit)
 import Effect.Aff.Class (class MonadAff)
-import Effect.Class (class MonadEffect, liftEffect)
+import Effect.Class (class MonadEffect)
 import Effect.Console (log)
 import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Prelude (flip, pure, show, (#), (&&), (+), (-), (<$>), (<<<), (<>), (==), (>), (>>>))
-import PureTabs.Model.Events (GroupMapping(..), SidebarEvent(..), TabWithGroup(..))
 import PureTabs.Model.Group (GroupId(..))
+import PureTabs.Model.GroupMapping (GroupData(..))
+import PureTabs.Model.SidebarEvent (SidebarEvent(..))
+import PureTabs.Model.TabWithGroup (TabWithGroup(..))
 import PureTabs.Sidebar.Component.GroupName as GroupName
 import PureTabs.Sidebar.Component.TopMenu as TopMenu
 import PureTabs.Sidebar.Tabs (Output(..))
@@ -72,7 +69,7 @@ data Action
 
 data Query a
   = TabsQuery (Tabs.Query a)
-  | InitialTabsWithGroup (Array GroupMapping) (Array TabWithGroup) a
+  | InitialTabsWithGroup (Array GroupData) (Array TabWithGroup) a
   | GroupDeleted GroupId (Maybe TabId) a
 
 initialGroup :: M.Map GroupId Group
@@ -291,7 +288,7 @@ handleQuery = case _ of
                     newGroups' -> 
                       M.fromFoldable $ 
                         A.mapWithIndex 
-                        (\idx (GroupMapping g) -> Tuple g.groupId { name: g.name, pos: idx})
+                        (\idx (GroupData g) -> Tuple g.groupId { name: g.name, pos: idx})
                         newGroups'
 
              existingGroups = M.keys newGroups
@@ -485,16 +482,3 @@ createGroup mGid s =
 insertGroup :: GroupId -> Group -> State -> State
 insertGroup gid group s = s { groups = M.insert gid group s.groups }
 
-
--- | Given a mapping function from a to b, where Eq is defined for b, return a
--- | comparison function.
-eqBy :: forall a b. Eq b => (a -> b) -> (a -> a -> Boolean)
-eqBy f = \a b -> f a == f b
-
--- | Given a mapping function from a to b where Ord is defined for b, sort the
--- | array by the mapping function, tie-breaking using the index.
-sortByKeyIndex :: forall a b. Ord b => (a -> b) -> Array a -> Array a
-sortByKeyIndex cmp = A.mapWithIndex Tuple >>> A.sortBy compareKey >>> map T.snd
-  where compareGiven = comparing (T.snd >>> cmp)
-        compareIdx = comparing T.fst
-        compareKey = fold [compareGiven, compareIdx]

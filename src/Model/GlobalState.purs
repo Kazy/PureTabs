@@ -63,7 +63,7 @@ import Effect (Effect)
 import Effect.Console (error)
 import Effect.Exception.Unsafe (unsafeThrow)
 import Prelude ((#))
-import PureTabs.Model.Events (BackgroundEvent)
+import PureTabs.Model.BackgroundEvent (BackgroundEvent)
 
 type GlobalState
   = { windows :: M.Map WindowId ExtWindow
