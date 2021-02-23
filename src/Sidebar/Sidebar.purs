@@ -1,16 +1,16 @@
 module PureTabs.Sidebar where
 
 import Browser.Runtime as Runtime
-import Browser.Tabs (Tab(..))
+import Browser.Tabs (Tab(..), WindowId)
 import Browser.Tabs.OnUpdated (ChangeInfo(..))
 import Browser.Windows (getCurrent)
 import Control.Alt (void)
 import Control.Alternative (pure)
-import Control.Bind ((<*), (*>))
 import Control.Coroutine as CR
 import Control.Coroutine.Aff (emit)
 import Control.Coroutine.Aff as CRA
-import Control.Monad.Error.Class (throwError)
+import Control.Monad.Error.Class (throwError, try)
+import Data.Either (Either(..))
 import Data.Function (($))
 import Data.Maybe (Maybe(..))
 import Data.Show (show)
@@ -31,22 +31,29 @@ import PureTabs.Sidebar.Tabs as Tabs
 import Web.DOM.ParentNode (QuerySelector(..))
 
 
--- | Try to connect the port and wait for the connection to succeed.
-tryConnectPort :: Aff Runtime.Port
-tryConnectPort = loopConnect 5 (Milliseconds 50.0)
+-- | Try to connect the port and to send the first message, retrying multiple
+-- | times if it does not succeed.
+trySendWindowId :: WindowId -> Aff Runtime.Port
+trySendWindowId windowId = loopConnect 5 (Milliseconds 50.0)
   where 
+        tryConnect = do 
+            port <- Runtime.connect 
+            Runtime.postMessageJson port (SbHasWindowId windowId) 
+            log "[sb] windowId sent"
+            pure port
+
         loopConnect :: Int -> Milliseconds -> Aff Runtime.Port
         loopConnect 0 _ = 
           throwError $ error "[sb] couldn't connect to the background extesion :("
         loopConnect attemptLeft timeout = do
           liftEffect $ 
             log $ "[sb] attempt to connect to background extension (left: " <> (show attemptLeft) <> ")"
-          port <- liftEffect $ Runtime.connect
-          portHasError <- liftEffect $ Runtime.portHasError port
-          if portHasError then
-            (delay timeout) *> loopConnect (attemptLeft - 1) (multiplyMs 2.0 timeout)
-          else
-            pure port
+          success <- try $ liftEffect tryConnect
+          case success of 
+               Left err -> do
+                 delay timeout 
+                 loopConnect (attemptLeft - 1) (multiplyMs 2.0 timeout)
+               Right port -> pure port
 
         multiplyMs by (Milliseconds t) = Milliseconds (t * by)
 
@@ -56,10 +63,8 @@ main :: Effect Unit
 main = do
   log "[sb] starting"
   HA.runHalogenAff do
-    port <- tryConnectPort
     currentWindow <- getCurrent
-    liftEffect $ Runtime.postMessageJson port (SbHasWindowId currentWindow.id)
-        <* log "[sb] windowId sent"
+    port <- trySendWindowId currentWindow.id
     content' <- HA.selectElement (QuerySelector "#content")
     io <- case content' of
       Nothing -> throwError (error "Could not find #content")
