@@ -82,6 +82,11 @@ body,
   color: black;
 }
 
+.group-name:hover {
+  background-color: white;
+  color: black;
+}
+
 .group-deletion-button {
   margin-right: 5px;
   text-align: center;
