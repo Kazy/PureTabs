@@ -10,7 +10,7 @@ import Browser.Tabs.OnDetached as OnDetached
 import Browser.Tabs.OnMoved as OnMoved
 import Browser.Tabs.OnRemoved as OnRemoved
 import Browser.Tabs.OnUpdated as OnUpdated
-import Browser.Utils (Listener, mkListenerOne, mkListenerTwo, mkListenerUnit, unsafeLog)
+import Browser.Utils (Listener, mkListenerOne, mkListenerTwo, mkListenerUnit)
 import Browser.Windows (Window)
 import Browser.Windows.OnCreated as WinOnCreated
 import Browser.Windows.OnRemoved as WinOnRemoved
@@ -20,6 +20,7 @@ import Control.Bind ((=<<), (>>=))
 import Control.Category ((>>>))
 import Data.Array as A
 import Data.CommutativeRing ((+))
+import Data.Foldable (for_)
 import Data.Function (flip, (#))
 import Data.Lens (_Just, set, view)
 import Data.Lens.At (at)
@@ -86,8 +87,9 @@ onTabCreated :: StateRef -> Tab -> Effect Unit
 onTabCreated stateRef tab = do
   log $ "bg: created tab " <> (BT.showTabId tab) 
   state <- Ref.modify (GS.createTab tab) stateRef
+  liftEffect $ GS.sendToTabPort tab state $ BgTabCreated tab
 
-  let Tab(t) = tab
+  let Tab({id: tid, windowId: wid}) = tab
 
   -- Attempt to detect session restore.
   -- If the tab we're opening already has a `groupId` value, it is either a
@@ -99,24 +101,16 @@ onTabCreated stateRef tab = do
   -- opening a session on top of an already existing session. If the user
   -- starts creating groups, opening tab, and then restore a session, then it
   -- will probably break.
-
-  -- An other issue with this solution is that the action is triggered in a
-  -- fiber, delaying its action, and in particular allowing the tab creation
-  -- event to be sent later than e.g. the tab activation event to the sidebar.
-  -- A possible fix could be send the TabCreated event just as before, and then
-  -- launch a fiber to ask the sidebar to switch the tab's group (and
-  -- initialize the groups) in case it's needed.
   launchAff_ $
-     (getTabValue t.id "groupId" :: Aff (Maybe GroupId)) >>= 
-       case _ of
-            Nothing -> liftEffect $ GS.sendToTabPort tab state $ BgTabCreated tab Nothing
-            Just gid -> do 
-               retrieveGroups t.windowId >>= 
-                 case _ of 
-                      [] -> pure unit
-                      groups -> liftEffect $ GS.sendToTabPort tab state $ BgInitializeGroups groups
-               liftEffect $ GS.sendToTabPort tab state $ BgTabCreated tab (Just gid)
-               
+     (getTabValue tid "groupId" :: Aff (Maybe GroupId)) >>= \gid' ->
+       for_ gid' \gid -> retrieveGroups wid >>= \groups' -> do
+          -- First initialize the groups, then assign the tab. Otherwise the
+          -- tab could be assigned to a non existing group.
+          case groups' of 
+               [] -> pure unit
+               groups -> liftEffect $ GS.sendToTabPort tab state $ BgInitializeGroups groups
+
+          liftEffect $ GS.sendToTabPort tab state $ BgAssignTabToGroup tid gid
 
 onTabUpdated :: StateRef -> TabId -> OnUpdated.ChangeInfo -> Tab -> Effect Unit
 onTabUpdated stateRef tid cinfo tab = do

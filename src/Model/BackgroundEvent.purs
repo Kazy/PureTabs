@@ -14,7 +14,8 @@ import PureTabs.Model.TabWithGroup (TabWithGroup)
 data BackgroundEvent
   = BgInitialTabList (Array GroupData) (Array TabWithGroup)
   | BgInitializeGroups (Array GroupData)
-  | BgTabCreated Tab (Maybe GroupId)
+  | BgTabCreated Tab
+  | BgAssignTabToGroup TabId GroupId
   | BgTabDeleted TabId
   | BgTabUpdated TabId ChangeInfo Tab
   | BgTabMoved TabId Int Int
