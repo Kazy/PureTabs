@@ -11,7 +11,7 @@ import Data.Array (catMaybes, deleteAt, filter, findIndex, head, insertAt, lengt
 import Data.Eq ((/=), (==))
 import Data.Foldable (for_)
 import Data.Function (flip, ($))
-import Data.Maybe (Maybe(..), fromMaybe, maybe)
+import Data.Maybe (Maybe(..), fromMaybe, isNothing, maybe)
 import Data.MediaType.Common (textPlain)
 import Data.Monoid ((<>))
 import Data.Show (show)
@@ -34,7 +34,7 @@ import Halogen.HTML.Properties as HP
 import Prelude (negate, sub)
 import PureTabs.Browser.Dom.Element (scrollIntoView)
 import PureTabs.Model.SidebarEvent (SidebarEvent(..))
-import Sidebar.Utils (moveElem)
+import Sidebar.Utils (moveElem, whenC)
 import Web.Event.Event (Event)
 import Web.Event.Event as Event
 import Web.HTML.Event.DataTransfer as DT
@@ -70,9 +70,6 @@ data Action
   | TabDragEnd DE.DragEvent
   | TabDragLeave DE.DragEvent
   | TabDragLeaveRun DE.DragEvent
-  -- mouse event
-  | TabMouseEnter ME.MouseEvent Int
-  | TabMouseLeave ME.MouseEvent Int
   -- special
   -- stop the propagation of the event
   | PreventPropagation Event
@@ -93,7 +90,6 @@ type Debouncer
 type State
   = { tabs :: Array Tab
     , selectedElem :: Maybe DraggedTab
-    , tabHovered :: Maybe Int
     , leaveDebounce :: Maybe Debouncer
     }
 
@@ -101,14 +97,13 @@ type TabProperties
   = { isActive :: Boolean
     , isDiscarded :: Boolean
     , isBeingDragged :: Boolean
-    , isHovered :: Boolean
     }
 
 getTabProperties 
   :: forall r.
   Tab 
   -> Int
-  -> { selectedElem :: Maybe DraggedTab, tabHovered :: Maybe Int | r }
+  -> { selectedElem :: Maybe DraggedTab | r }
   -> TabProperties
 getTabProperties (Tab t) index props = 
   let 
@@ -120,7 +115,6 @@ getTabProperties (Tab t) index props =
     { isActive: t.active
     , isDiscarded: fromMaybe false t.discarded
     , isBeingDragged: isBeingDragged
-    , isHovered: maybe false ((==) index) props.tabHovered
     }
 
 component :: forall i m. MonadEffect m => MonadAff m => H.Component HH.HTML Query i Output m
@@ -140,7 +134,6 @@ initialState :: forall i. i -> State
 initialState _ = 
   { tabs: empty
   , selectedElem: Nothing
-  , tabHovered: Nothing
   , leaveDebounce: Nothing 
   }
 
@@ -175,7 +168,7 @@ render state =
     currentOverIndex = fromMaybe (-1) $ state.selectedElem >>= _.overIndex
   in
     HH.div
-      [ HP.class_ $ H.ClassName "tabs"
+      [ HP.classes [H.ClassName "tabs", whenC (isNothing state.selectedElem) $ H.ClassName "is-not-dragging"]
       , HE.onDoubleClick (\ev -> Just (UserOpenedTab Nothing (ME.toEvent ev)))
       , HE.onDragOver \evt -> Just $ TabDragOver evt (sub (A.length tabs) 1)
       , HE.onDragLeave \evt -> Just $ TabDragLeave evt
@@ -217,10 +210,6 @@ render state =
       , HE.onDragEnd \evt -> Just $ TabDragEnd evt
       , HE.onDragOver \evt -> Just $ TabDragOver evt index
 
-      -- fake hover to fix incorrect css hover effect during dragging
-      , HE.onMouseEnter \evt -> Just $ TabMouseEnter evt index
-      , HE.onMouseLeave \evt -> Just $ TabMouseLeave evt index
-
       -- click event
       , HE.onClick (\ev -> Just (UserActivatedTab t.id (ME.toEvent ev)))
       , HE.onDoubleClick (\ev -> Just (UserOpenedTab (Just t.id) (ME.toEvent ev)))
@@ -232,7 +221,6 @@ render state =
               , if props.isActive then Just "active" else Nothing
               , if props.isDiscarded then Just "discarded" else Nothing
               , if props.isBeingDragged then Just "being-dragged" else Nothing
-              , if props.isHovered then Just "hover" else Nothing
               ]
       , HP.title t.title
       ] [
@@ -326,7 +314,7 @@ handleAction = case _ of
       $ do
           DT.setData textPlain (showTabId tab) dataTransfer
           DT.setDropEffect DT.Move dataTransfer
-    H.modify_ _ { selectedElem = Just { tab: tab, originalIndex: index, overIndex: Just index }, tabHovered = Nothing }
+    H.modify_ _ { selectedElem = Just { tab: tab, originalIndex: index, overIndex: Just index } }
     H.liftEffect $ log $ "sb: drag start from " <> (show index)
 
   TabDragOver event index -> do
@@ -377,19 +365,6 @@ handleAction = case _ of
     case state.selectedElem of
       Just selectedRec@{ overIndex: (Just overIndex) } -> H.modify_ _ { selectedElem = Just $ selectedRec { overIndex = Nothing } }
       _ -> pure unit
-
-  -- Mouse over action
-  TabMouseEnter evt index -> do
-    state <- H.get
-    case state of
-      { tabHovered: Nothing, selectedElem: Nothing } -> H.modify_ _ { tabHovered = Just index }
-      _ -> pure unit
-
-  TabMouseLeave evt index -> do
-    state <- H.get
-    case state.tabHovered of
-      Nothing -> pure unit
-      Just prevIdx -> H.modify_ _ { tabHovered = Nothing }
 
 handleQuery :: forall act o m a. MonadEffect m => Query a -> H.HalogenM State act () o m (Maybe a)
 handleQuery = case _ of
