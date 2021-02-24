@@ -8,12 +8,13 @@ import Data.Array as A
 import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Array.NonEmpty as NonEmptyArray
 import Data.Eq ((/=))
+import Data.Foldable (for_)
 import Data.Function (($))
 import Data.Map as M
 import Data.Maybe (Maybe(..), fromMaybe, fromMaybe', maybe)
 import Data.MediaType.Common (textPlain)
 import Data.Number (fromString)
-import Data.Set (Set, member, toUnfoldable) as S
+import Data.Set (Set, toUnfoldable) as S
 import Data.Set.NonEmpty (cons, max) as NES
 import Data.Symbol (SProxy(..))
 import Data.Traversable (sequence, traverse)
@@ -21,7 +22,7 @@ import Data.Tuple (Tuple(..))
 import Data.Tuple as T
 import Data.Unit (Unit, unit)
 import Effect.Aff.Class (class MonadAff)
-import Effect.Class (class MonadEffect)
+import Effect.Class (class MonadEffect, liftEffect)
 import Effect.Console (log)
 import Halogen as H
 import Halogen.HTML as HH
@@ -70,6 +71,8 @@ data Action
 data Query a
   = TabsQuery (Tabs.Query a)
   | InitialTabsWithGroup (Array GroupData) (Array TabWithGroup) a
+  | InitializeGroups (Array GroupData) a
+  | TabCreated Tab (Maybe GroupId) a
   | GroupDeleted GroupId (Maybe TabId) a
 
 initialGroup :: M.Map GroupId Group
@@ -278,6 +281,20 @@ handleQuery :: forall a m. MonadEffect m => Query a -> H.HalogenM State Action S
 handleQuery = case _ of 
    TabsQuery q -> handleTabsQuery q
 
+   InitializeGroups groups a -> do
+      let newGroups = M.fromFoldable $ 
+            A.mapWithIndex (\idx (GroupData g) -> Tuple g.groupId { name: g.name, pos: idx}) groups
+
+      -- TODO: re-assign existing tabs to the new groups.
+      H.modify_ \s ->
+        if newGroups == s.groups then
+          s
+        else
+          s { groups = newGroups }
+
+      pure (Just a)
+
+
    InitialTabsWithGroup groups tabs a -> do
        -- Assign the tabs to their group and save the tabs positions
        s <- H.modify \s ->
@@ -293,9 +310,7 @@ handleQuery = case _ of
 
              existingGroups = M.keys newGroups
 
-             tabIdGroup = tabs <#> 
-                \(TabWithGroup (Tab t) gid) -> 
-                    Tuple t.id $ maybe s.currentGroup (\gid' -> if S.member gid' existingGroups then gid' else s.currentGroup) gid
+             tabIdGroup = tabs <#> \(TabWithGroup (Tab t) gid) -> Tuple t.id gid
           in
              s { groups = newGroups, tabsToGroup = M.fromFoldable tabIdGroup, groupTabsPositions = tabIdGroup }
 
@@ -328,6 +343,38 @@ handleQuery = case _ of
               in 
                   void $ tellChild gid $ Tabs.InitialTabList $ A.fromFoldable $ T.fst <$> groupedTabs
 
+   TabCreated (Tab tab) groupId a -> do 
+       liftEffect $ log $ "[sb] created tab " <> (show tab.id)
+       s <- H.get
+
+       let tabGroupId = fromMaybe s.currentGroup groupId
+
+           newGroupTabsPositions = 
+             fromMaybe s.groupTabsPositions 
+             $ A.insertAt tab.index (Tuple tab.id tabGroupId) s.groupTabsPositions
+
+           inGroupPosition = getPositionTabInGroup tab.index tabGroupId newGroupTabsPositions 
+
+           newTab = Tab $ tab { index = inGroupPosition }
+
+       newS <- H.modify \state -> 
+         state 
+         { tabsToGroup = M.insert tab.id tabGroupId s.tabsToGroup 
+         , groupTabsPositions = newGroupTabsPositions
+         }
+
+       void $ tellChild tabGroupId $ Tabs.TabCreated newTab
+       H.raise $ SbChangeTabGroup tab.id (Just tabGroupId)
+
+       -- XXX: Temporary fix because Background.onTabCreated launches an async
+       -- computation to create a tab instead of doing it synchronously, which
+       -- makes the tab activation trigger *before* the tab creation.
+       if tab.active then 
+         void $ handleTabsQuery $ Tabs.TabActivated Nothing tab.id Nothing 
+       else 
+         pure unit
+       pure (Just a)
+
    GroupDeleted gid currentTid a -> do 
       H.modify_ \s -> 
         let 
@@ -337,31 +384,13 @@ handleQuery = case _ of
       pure $ Just a
 
 
-handleTabsQuery :: forall act a m. Tabs.Query a -> H.HalogenM State act Slots SidebarEvent m (Maybe a)
+handleTabsQuery :: forall act a m. MonadEffect m => Tabs.Query a -> H.HalogenM State act Slots SidebarEvent m (Maybe a)
 handleTabsQuery = case _ of
 
     Tabs.InitialTabList tabs a -> pure $ Just a
 
-    Tabs.TabCreated (Tab tab) a -> do 
-       s <- H.get
-
-       let newGroupTabsPositions = 
-             fromMaybe s.groupTabsPositions 
-             $ A.insertAt tab.index (Tuple tab.id s.currentGroup) s.groupTabsPositions
-
-           inGroupPosition = getPositionTabInGroup tab.index s.currentGroup newGroupTabsPositions 
-
-           newTab = Tab $ tab { index = inGroupPosition }
-
-       newS <- H.modify \state -> 
-         state 
-         { tabsToGroup = M.insert tab.id s.currentGroup s.tabsToGroup 
-         , groupTabsPositions = newGroupTabsPositions
-         }
-
-       void $ tellChild newS.currentGroup $ Tabs.TabCreated newTab
-       H.raise $ SbChangeTabGroup tab.id (Just newS.currentGroup)
-       pure (Just a)
+    -- TODO: log an error, this shouldn't happen
+    Tabs.TabCreated tab a -> pure $ Just a
 
     Tabs.TabDeleted tid reply -> do 
        doOnTabGroup tid \gid -> do 
@@ -378,12 +407,14 @@ handleTabsQuery = case _ of
        pure (Just (reply Nothing))
 
     Tabs.TabActivated prevTid' tid a -> do 
-       case prevTid' of
-            mPrevTid @ (Just prevTid) -> doOnTabGroup prevTid \gid -> 
-                void $ tellChild gid $ Tabs.TabActivated mPrevTid tid
-            Nothing -> pure unit
+       liftEffect $ log $ "[sb] activated tab " <> (show tid) <> " from " <> (show prevTid')
+       for_ prevTid' \prevTid ->
+         doOnTabGroup prevTid \gid -> 
+           void $ tellChild gid $ Tabs.TabActivated prevTid' tid
+
        doOnTabGroup tid \gid -> do 
          { tabsToGroup } <- H.modify (_ { currentGroup = gid})
+         liftEffect $ log $ "[sb] group of " <> (show tid) <> " is " <> (show gid)
          H.raise $ SbSelectedGroup $ getTabIdsOfGroup gid tabsToGroup
          void $ tellChild gid $ Tabs.TabActivated prevTid' tid
        pure (Just a)

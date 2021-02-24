@@ -2,7 +2,7 @@
 
 
 exports.connect = function () {
-    return browser.runtime.connect({name: name});
+    return browser.runtime.connect();
 }
 
 exports.postMessage = function (port) {

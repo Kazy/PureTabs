@@ -10,13 +10,13 @@ import Browser.Tabs.OnDetached as OnDetached
 import Browser.Tabs.OnMoved as OnMoved
 import Browser.Tabs.OnRemoved as OnRemoved
 import Browser.Tabs.OnUpdated as OnUpdated
-import Browser.Utils (Listener, mkListenerOne, mkListenerTwo, mkListenerUnit)
+import Browser.Utils (Listener, mkListenerOne, mkListenerTwo, mkListenerUnit, unsafeLog)
 import Browser.Windows (Window)
 import Browser.Windows.OnCreated as WinOnCreated
 import Browser.Windows.OnRemoved as WinOnRemoved
 import Control.Alt ((<#>))
 import Control.Alternative ((*>))
-import Control.Bind (map, (=<<), (>>=))
+import Control.Bind ((=<<), (>>=))
 import Control.Category ((>>>))
 import Data.Array as A
 import Data.CommutativeRing ((+))
@@ -25,13 +25,12 @@ import Data.Lens (_Just, set, view)
 import Data.Lens.At (at)
 import Data.List (List, foldMap)
 import Data.Map as M
-import Data.Maybe (Maybe(..), fromMaybe, maybe)
+import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid ((<>))
 import Data.Newtype (unwrap)
 import Data.Set as Set
 import Data.Show (show)
-import Data.Traversable (sequence, traverse_)
-import Data.Tuple (Tuple(..))
+import Data.Traversable (traverse)
 import Data.Unit (unit)
 import Effect (Effect)
 import Effect.Aff (Aff, launchAff_)
@@ -58,36 +57,7 @@ main = do
   log "[bg] starting"
   launchAff_ do
      allTabs <- BT.browserQuery {}
-     groups <- M.fromFoldable <$> setWindowsGroups allTabs
-     setTabsGroups groups allTabs
-     liftEffect $ log "[bg] done initializing groups"
      liftEffect $ initializeBackground =<< (Ref.new $ GS.initialTabsToGlobalState allTabs)
-
-  where
-        -- | For each window found, set a default group if it doesn't exist
-        setWindowsGroups :: Array Tab -> Aff (Array (Tuple WindowId (Array GroupData)))
-        setWindowsGroups tabs = sequence $ tabs # 
-           map (unwrap >>> _.windowId)
-           >>> Set.fromFoldable
-           >>> A.fromFoldable
-           -- Retrieve the groups for each existing window, and if they don't exist, create a group
-           >>> map \winId -> retrieveGroups winId >>= 
-             case _ of 
-                  [] -> updateGroupsMapping winId (createGroup (GroupId 0) "main") 
-                      *> retrieveGroups winId >>= \groups' -> pure $ Tuple winId groups'
-                  groups' -> pure $ Tuple winId groups'
-
-        -- | For each tab, set a default tab if it doesn't exist
-        setTabsGroups :: M.Map WindowId (Array GroupData) -> Array Tab ->  Aff Unit
-        setTabsGroups winToGroups tabs = 
-          let 
-              defaultGroupIdPerWin = winToGroups # map (A.head >>> maybe (GroupId 0) (unwrap >>> _.groupId))
-              defaultGroup winId = fromMaybe (GroupId 0) $ M.lookup winId defaultGroupIdPerWin
-          in
-              tabs # traverse_ \(Tab t) -> (getTabValue t.id "groupId" :: Aff (Maybe GroupId)) >>= 
-                case _ of 
-                     Nothing -> setTabValue t.id "groupId" $ defaultGroup t.windowId
-                     _ -> pure unit
 
 initializeBackground :: Ref.Ref GS.GlobalState -> Effect Unit
 initializeBackground ref = do
@@ -116,7 +86,37 @@ onTabCreated :: StateRef -> Tab -> Effect Unit
 onTabCreated stateRef tab = do
   log $ "bg: created tab " <> (BT.showTabId tab) 
   state <- Ref.modify (GS.createTab tab) stateRef
-  GS.sendToTabPort tab state $ BgTabCreated tab
+
+  let Tab(t) = tab
+
+  -- Attempt to detect session restore.
+  -- If the tab we're opening already has a `groupId` value, it is either a
+  -- restored tab from the current session, or a restored tab from a full
+  -- session restore. If we found groups associated with the tab's window, we
+  -- ask the sidebar to initiliaze them.
+  -- 
+  -- This solution ignores one use case (for which it will probably be buggy):
+  -- opening a session on top of an already existing session. If the user
+  -- starts creating groups, opening tab, and then restore a session, then it
+  -- will probably break.
+
+  -- An other issue with this solution is that the action is triggered in a
+  -- fiber, delaying its action, and in particular allowing the tab creation
+  -- event to be sent later than e.g. the tab activation event to the sidebar.
+  -- A possible fix could be send the TabCreated event just as before, and then
+  -- launch a fiber to ask the sidebar to switch the tab's group (and
+  -- initialize the groups) in case it's needed.
+  launchAff_ $
+     (getTabValue t.id "groupId" :: Aff (Maybe GroupId)) >>= 
+       case _ of
+            Nothing -> liftEffect $ GS.sendToTabPort tab state $ BgTabCreated tab Nothing
+            Just gid -> do 
+               retrieveGroups t.windowId >>= 
+                 case _ of 
+                      [] -> pure unit
+                      groups -> liftEffect $ GS.sendToTabPort tab state $ BgInitializeGroups groups
+               liftEffect $ GS.sendToTabPort tab state $ BgTabCreated tab (Just gid)
+               
 
 onTabUpdated :: StateRef -> TabId -> OnUpdated.ChangeInfo -> Tab -> Effect Unit
 onTabUpdated stateRef tid cinfo tab = do
@@ -158,6 +158,7 @@ onTabAttached stateRef tid info = do
 
 onConnect :: StateRef -> Runtime.Port -> Effect Unit
 onConnect stateRef port = do
+  log "[bg] connection received"
   -- Create a temporary listener ref that will only be held until the sidebar has sent its current window
   listenerRef <- Ref.new Nothing
   initialListener <-
@@ -172,7 +173,7 @@ onConnect stateRef port = do
 
   windowListener :: (WindowId -> Effect Unit) -> SidebarEvent -> Effect Unit
   windowListener callback msg = case msg of
-    SbHasWindowId winId -> log ("bg: created winId " <> show winId) *> callback winId
+    SbHasWindowId winId -> log ("[bg] created winId " <> show winId) *> callback winId
     _ -> pure unit
 
 -- | Initialize the data and the listeners of a new window, and send the current window state.
@@ -201,21 +202,38 @@ onNewWindowId port stateRef listenerRef winId = do
           <#> (flip M.lookup w.tabs)
           # A.catMaybes
 
-        tabsWithGid = 
-          tabs <#> \tab@(Tab t)->
-            getTabValue t.id "groupId" <#> \gid -> TabWithGroup tab gid
-
     in
       launchAff_ do
-         tabsWithGroup <- sequence tabsWithGid
-         groups <- retrieveGroups winId
+         groups <- initialWindowGroups
+         tabsWithGroup <- initialTabsGroups tabs groups
          liftEffect $ Runtime.postMessageJson port $ BgInitialTabList groups tabsWithGroup
     
-
   --  Add the new onMessage listener
   sidebarListener <- Runtime.onMessageJsonAddListener port $ manageSidebar stateRef winId port
   onDisconnectListener <- mkListenerUnit $ onDisconnect stateRef winId sidebarListener
   Runtime.portOnDisconnect port onDisconnectListener
+
+  where
+        -- | Set a default group if none exist.
+        initialWindowGroups :: Aff (Array GroupData)
+        initialWindowGroups = 
+           retrieveGroups winId >>= 
+             case _ of 
+                  [] -> updateGroupsMapping winId (createGroup (GroupId 0) "main") 
+                      *> retrieveGroups winId >>= \groups' -> pure groups'
+                  groups' -> pure groups'
+
+        -- | For each tab, set a default tab if it doesn't exist
+        initialTabsGroups :: Array Tab -> Array GroupData -> Aff (Array TabWithGroup)
+        initialTabsGroups tabs groups = 
+          let 
+              defaultGroup = groups # (A.head >>> maybe (GroupId 0) (unwrap >>> _.groupId))
+          in
+              tabs # traverse \tab@(Tab t) -> (getTabValue t.id "groupId" :: Aff (Maybe GroupId)) >>= 
+                case _ of 
+                     Nothing -> setTabValue t.id "groupId" defaultGroup *> pure (TabWithGroup tab defaultGroup)
+                     Just gid -> pure $ TabWithGroup tab gid
+
 
 
 manageSidebar :: StateRef -> WindowId -> Runtime.Port -> SidebarEvent -> Effect Unit
@@ -242,7 +260,9 @@ manageSidebar ref winId port = case _ of
          tabIdsToHide = A.fromFoldable $ Set.difference allTabIds (Set.fromFoldable tabIds)
 
      BT.browserHideTabs tabIdsToHide
+     unsafeLog tabIdsToHide
      BT.browserShowTabs tabIds
+     unsafeLog tabIds
 
   SbDeletedGroup gid tabIds -> launchAff_ do
      BT.browserRemove tabIds

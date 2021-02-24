@@ -90,8 +90,12 @@ onBackgroundMsgConsumer query =
           void $ query $ H.tell $ \q -> Bar.InitialTabsWithGroup groups tabs q 
           pure Nothing
 
-        BgTabCreated tab -> do
-          void $ query $ H.tell $ \q -> Bar.TabsQuery (Tabs.TabCreated tab q)
+        BgInitializeGroups groups -> do
+          void $ query $ H.tell $ \q -> Bar.InitializeGroups groups q 
+          pure Nothing
+
+        BgTabCreated tab groupId -> do
+          void $ query $ H.tell $ \q -> Bar.TabCreated tab groupId q
           pure Nothing
 
         BgTabDeleted tabId -> do
