@@ -22,7 +22,7 @@ import Data.Tuple (Tuple(..))
 import Data.Tuple as T
 import Data.Unit (Unit, unit)
 import Effect.Aff.Class (class MonadAff)
-import Effect.Class (class MonadEffect, liftEffect)
+import Effect.Class (class MonadEffect)
 import Effect.Console (log)
 import Halogen as H
 import Halogen.HTML as HH
@@ -344,7 +344,6 @@ handleQuery = case _ of
                   void $ tellChild gid $ Tabs.InitialTabList $ A.fromFoldable $ T.fst <$> groupedTabs
 
    TabCreated (Tab tab) groupId a -> do 
-       liftEffect $ log $ "[sb] created tab " <> (show tab.id)
        s <- H.get
 
        let tabGroupId = fromMaybe s.currentGroup groupId
@@ -407,14 +406,12 @@ handleTabsQuery = case _ of
        pure (Just (reply Nothing))
 
     Tabs.TabActivated prevTid' tid a -> do 
-       liftEffect $ log $ "[sb] activated tab " <> (show tid) <> " from " <> (show prevTid')
        for_ prevTid' \prevTid ->
          doOnTabGroup prevTid \gid -> 
            void $ tellChild gid $ Tabs.TabActivated prevTid' tid
 
        doOnTabGroup tid \gid -> do 
          { tabsToGroup } <- H.modify (_ { currentGroup = gid})
-         liftEffect $ log $ "[sb] group of " <> (show tid) <> " is " <> (show gid)
          H.raise $ SbSelectedGroup $ getTabIdsOfGroup gid tabsToGroup
          void $ tellChild gid $ Tabs.TabActivated prevTid' tid
        pure (Just a)
