@@ -260,9 +260,7 @@ manageSidebar ref winId port = case _ of
          tabIdsToHide = A.fromFoldable $ Set.difference allTabIds (Set.fromFoldable tabIds)
 
      BT.browserHideTabs tabIdsToHide
-     unsafeLog tabIdsToHide
      BT.browserShowTabs tabIds
-     unsafeLog tabIds
 
   SbDeletedGroup gid tabIds -> launchAff_ do
      BT.browserRemove tabIds
