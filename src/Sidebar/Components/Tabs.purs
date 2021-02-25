@@ -287,7 +287,7 @@ handleAction = case _ of
       $ do
           Event.preventDefault ev
           Event.stopPropagation ev
-          log "sb: closed a tab"
+          log "[sb] closed a tab"
     H.raise $ TabsSidebarAction $ SbDeleteTab tid
 
   UserActivatedTab tid ev -> do
@@ -295,7 +295,7 @@ handleAction = case _ of
       $ do
           Event.preventDefault ev
           Event.stopPropagation ev
-          log "sb: activated a tab"
+          log "[sb] activated a tab"
     H.raise $ TabsSidebarAction $ SbActivateTab tid
 
   UserOpenedTab tid ev -> do
@@ -303,7 +303,7 @@ handleAction = case _ of
       $ do
           Event.preventDefault ev
           Event.stopPropagation ev
-          log "sb: created a tab"
+          log "[sb] created a tab"
     H.raise $ TabsSidebarAction $ SbCreateTab tid
 
   -- Drag actions
@@ -315,7 +315,7 @@ handleAction = case _ of
           DT.setData textPlain (showTabId tab) dataTransfer
           DT.setDropEffect DT.Move dataTransfer
     H.modify_ _ { selectedElem = Just { tab: tab, originalIndex: index, overIndex: Just index } }
-    H.liftEffect $ log $ "sb: drag start from " <> (show index)
+    H.liftEffect $ log $ "[sb] drag start from " <> (show index)
 
   TabDragOver event index -> do
     -- prevent the ghost from flying back to its (wrong) place
@@ -351,12 +351,12 @@ handleAction = case _ of
       Just { tab: (Tab t), originalIndex, overIndex: (Just overIndex) } -> do
         H.raise $ TabsSidebarAction (SbMoveTab t.id overIndex)
         H.raise $ OutputTabDragEnd Nothing
-        H.liftEffect $ log "sb: drag end (asking to do a move)"
+        H.liftEffect $ log "[sb] drag end (asking to do a move)"
 
       Just { tab: (Tab t), overIndex: Nothing } -> do
         H.modify_ _ { selectedElem = Nothing }
         H.raise $ OutputTabDragEnd $ Just t.id
-        H.liftEffect $ log "sb: drag end (doing nothing)"
+        H.liftEffect $ log "[sb] drag end (doing nothing)"
 
   TabDragLeave event -> runDebounce $ TabDragLeaveRun event
 
@@ -419,7 +419,7 @@ handleQuery = case _ of
     handleQuery $ TabDeleted tid \_ -> reply
 
   TabAttached tab a -> do
-    H.liftEffect (log $ "sb: tab attached " <> (showTabId tab))
+    H.liftEffect (log $ "[sb] tab attached " <> (showTabId tab))
     handleQuery $ TabCreated tab a
 
 

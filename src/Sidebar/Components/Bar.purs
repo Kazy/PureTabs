@@ -185,14 +185,14 @@ handleAction =
              dataTransfer = DE.dataTransfer dragEvent
          dragData <- H.liftEffect $ DT.getData textPlain dataTransfer
          case fromString dragData of
-              Nothing -> H.liftEffect $ log $ "sb: group drag over, got something else than a number: " <> dragData
+              Nothing -> H.liftEffect $ log $ "[sb] group drag over, got something else than a number: " <> dragData
               Just tid -> do 
                  H.modify_ _ { draggedCurrentGroup = Just gid }
-                 H.liftEffect $ log $ "sb: dragging " <> (show tid) <> " over " <> (show gid)
+                 H.liftEffect $ log $ "[sb] dragging " <> (show tid) <> " over " <> (show gid)
 
        DragEnd evt -> do 
           H.modify_ _ { draggedCurrentGroup = Nothing }
-          H.liftEffect $ log $ "sb: drag end from bar component"
+          H.liftEffect $ log $ "[sb] drag end from bar component"
 
        HandleTabsOutput gid output -> 
          case output of 

@@ -75,17 +75,17 @@ initializeBackground ref = do
 
 onWindowCreated :: StateRef -> Window -> Effect Unit
 onWindowCreated ref { id: winId } = do
-  log $ "bg: created window " <> (show winId)
+  log $ "[bg] created window " <> (show winId)
   ref # Ref.modify_ (GS.addEmptyWindow winId)
 
 onWindowRemoved :: StateRef -> WindowId -> Effect Unit
 onWindowRemoved ref winId = do
-  log $ "bg: deleted window " <> (show winId)
+  log $ "[bg] deleted window " <> (show winId)
   ref # Ref.modify_ (GS.deleteWindow winId)
 
 onTabCreated :: StateRef -> Tab -> Effect Unit
 onTabCreated stateRef tab = do
-  log $ "bg: created tab " <> (BT.showTabId tab) 
+  log $ "[bg] created tab " <> (BT.showTabId tab) 
   state <- Ref.modify (GS.createTab tab) stateRef
   liftEffect $ GS.sendToTabPort tab state $ BgTabCreated tab
 
@@ -201,6 +201,7 @@ onNewWindowId port stateRef listenerRef winId = do
 
     in
       launchAff_ do
+         liftEffect $ log $ "[bg] initializing tabs"
          groups <- initialWindowGroups
          tabsWithGroup <- initialTabsGroups tabs groups
          liftEffect $ Runtime.postMessageJson port $ BgInitialTabList groups tabsWithGroup
@@ -267,10 +268,16 @@ manageSidebar ref winId port = case _ of
      updateGroupsMapping winId $ deleteGroup gid
 
   SbChangeTabGroup tid Nothing -> launchAff_ $ removeTabValue tid "groupId"
-  SbChangeTabGroup tid (Just gid) -> launchAff_ $ setTabValue tid "groupId" gid
+  SbChangeTabGroup tid (Just gid) -> launchAff_ do
+    liftEffect $ log $ "[bg] moving tab " <> (show tid) <> " to group " <> (show gid) 
+    setTabValue tid "groupId" gid
 
-  SbCreatedGroup gid name -> launchAff_ $ updateGroupsMapping winId $ createGroup gid name
-  SbRenamedGroup gid name -> launchAff_ $ updateGroupsMapping winId $ renameGroup gid name
+  SbCreatedGroup gid name -> launchAff_ do
+     liftEffect $ log $ "[bg] creating group " <> name <> " [" <> (show gid) <> "]"
+     updateGroupsMapping winId $ createGroup gid name
+  SbRenamedGroup gid name -> launchAff_ do
+     liftEffect $ log $ "[bg] renaming group to " <> name <> " [" <> (show gid) <> "]"
+     updateGroupsMapping winId $ renameGroup gid name
   SbMovedGroup gid pos -> launchAff_ $ updateGroupsMapping winId $ moveGroup gid pos
 
   SbDetacheTab -> pure unit

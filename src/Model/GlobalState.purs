@@ -162,13 +162,13 @@ sendToTabPort :: Tab -> GlobalState -> BackgroundEvent -> Effect Unit
 sendToTabPort tab state msg =
   case (preview (_portFromWindow tab) state) of 
        Just port -> postMessageJson port msg
-       Nothing -> error $ "bg: no port found for tab id " <> (showTabId tab)
+       Nothing -> error $ "[bg] no port found for tab id " <> (showTabId tab)
 
 sendToWindowPort :: WindowId -> GlobalState -> BackgroundEvent -> Effect Unit
 sendToWindowPort wid state event =
   case (preview (_portFromWindowId wid) state) of
     Just port -> postMessageJson port event
-    Nothing -> error $ "bg: no port found for window id " <> (show wid)
+    Nothing -> error $ "[bg] no port found for window id " <> (show wid)
 
 initialTabsToGlobalState :: Array Tab -> GlobalState
 initialTabsToGlobalState tabs = { windows: windows, detached: Nothing }
@@ -255,7 +255,7 @@ moveTab fromIndex toIndex windowId state =
     unsafeUpdatePositions =
       (moveElement fromIndex toIndex)
       -- The indexes should exist, we need to revisit the code if it doesn't
-      >>> (maybe' (\_ -> unsafeThrow "bg: invalid indexes during moveTab") identity)
+      >>> (maybe' (\_ -> unsafeThrow "[bg] invalid indexes during moveTab") identity)
 
     -- | Update the index of the tab given the positions.
     -- | This is done by folding over a map of index update function applied to all tabs.
