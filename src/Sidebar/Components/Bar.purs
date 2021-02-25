@@ -253,6 +253,7 @@ handleAction =
           H.raise $ SbMoveTab tid newTabIndex
           H.raise $ SbActivateTab tid
           H.raise $ SbChangeTabGroup tid (Just toGroup)
+          void $ handleTabsQuery $ Tabs.TabActivated (Just tid) tid Nothing
 
         sidebarMoveTab 
           :: TabId 
