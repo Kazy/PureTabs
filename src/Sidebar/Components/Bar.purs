@@ -217,6 +217,7 @@ handleAction =
           -> GroupId 
           -> State 
           -> H.HalogenM State Action Slots SidebarEvent m Unit
+        moveTabToGroup _ fromGroup toGroup _ | fromGroup == toGroup = pure unit
         moveTabToGroup tid fromGroup toGroup state = do
           let 
               -- XXX: The goal is to put it at the end, but if you:
