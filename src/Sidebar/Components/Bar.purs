@@ -72,7 +72,7 @@ data Query a
   = TabsQuery (Tabs.Query a)
   | InitialTabsWithGroup (Array GroupData) (Array TabWithGroup) a
   | InitializeGroups (Array GroupData) a
-  | AssignTabToGroup TabId GroupId a
+  | AssignTabToGroup TabId (Maybe GroupId) a
   | GroupDeleted GroupId (Maybe TabId) a
 
 initialGroup :: M.Map GroupId Group
@@ -295,7 +295,16 @@ handleQuery = case _ of
 
       pure (Just a)
 
-   AssignTabToGroup tid gid a -> do 
+   -- Given Nothing, we assign the group ourselves (i.e. the tab had no group to start with)
+   AssignTabToGroup tid Nothing a -> do 
+      { tabsToGroup } <- H.get
+      let groupId = M.lookup tid tabsToGroup
+      for_ groupId \gid -> H.raise $ SbChangeTabGroup tid (Just gid)
+      pure (Just a)
+
+   -- Given an existing group for the tab, we modify our state to reflect it. No need to update the
+   -- background since the information already comes for there.
+   AssignTabToGroup tid (Just gid) a -> do 
       oldS <- H.get
 
       for_ (M.lookup tid oldS.tabsToGroup) \prevGid -> do
@@ -309,9 +318,6 @@ handleQuery = case _ of
         tab <- join <$> (H.query _tabs prevGid $ H.request $ Tabs.TabDeleted tid)
 
         let newTabIndex = getGroupPositionOfTab tid gid s.groupTabsPositions
-        
-        liftEffect $ log $ "[sb] new tab index: " <> (show newTabIndex)
-        liftEffect $ unsafeLog s.groupTabsPositions
 
         case Tuple tab newTabIndex of
              Tuple (Just (Tab tab')) (Just newTabIndex') -> 
@@ -338,13 +344,6 @@ handleQuery = case _ of
              tabIdGroup = tabs <#> \(TabWithGroup (Tab t) gid) -> Tuple t.id gid
           in
              s { groups = newGroups, tabsToGroup = M.fromFoldable tabIdGroup, groupTabsPositions = tabIdGroup }
-
-       -- Update the browser state to re-assign correctly all the tabs
-       let 
-           (groupsTupled :: Array (Tuple TabId GroupId)) = M.toUnfoldableUnordered s.tabsToGroup
-           setGroups = groupsTupled <#>
-              (\(Tuple tid gid) -> H.raise $ SbChangeTabGroup tid (Just gid)) 
-       void $ sequence setGroups
 
        -- Initialize each child tabs component with its tabs
        let 
@@ -402,7 +401,6 @@ handleTabsQuery = case _ of
          }
 
        void $ tellChild tabGroupId $ Tabs.TabCreated newTab
-       H.raise $ SbChangeTabGroup tab.id (Just tabGroupId)
        pure $ Just a
 
 

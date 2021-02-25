@@ -101,50 +101,53 @@ onTabCreated stateRef tab = do
   -- opening a session on top of an already existing session. If the user
   -- starts creating groups, opening tab, and then restore a session, then it
   -- will probably break.
-  launchAff_ $
-     (getTabValue tid "groupId" :: Aff (Maybe GroupId)) >>= \gid' ->
-       for_ gid' \gid -> retrieveGroups wid >>= \groups' -> do
-          -- First initialize the groups, then assign the tab. Otherwise the
-          -- tab could be assigned to a non existing group.
-          case groups' of 
-               [] -> pure unit
-               groups -> liftEffect $ GS.sendToTabPort tab state $ BgInitializeGroups groups
+  launchAff_ do
+    groups' <- retrieveGroups wid
+    -- First initialize the groups, then assign the tab. Otherwise the
+    -- tab could be assigned to a non existing group.
+    case groups' of 
+        [] -> pure unit
+        groups -> liftEffect do
+           log $ "[bg] groups found for window " <> (show wid)
+           GS.sendToTabPort tab state $ BgInitializeGroups groups
 
-          liftEffect $ GS.sendToTabPort tab state $ BgAssignTabToGroup tid gid
+    gid <-(getTabValue tid "groupId" :: Aff (Maybe GroupId))
+    liftEffect $ log $ "[bg] gid maybe found for tab " <> (show tid) <> ": " <> (show gid)
+    liftEffect $ GS.sendToTabPort tab state $ BgAssignTabToGroup tid gid
 
 onTabUpdated :: StateRef -> TabId -> OnUpdated.ChangeInfo -> Tab -> Effect Unit
 onTabUpdated stateRef tid cinfo tab = do
-  log $ "bg: updated tab " <> show tid
+  log $ "[bg] updated tab " <> show tid
   state <- Ref.modify (GS.updateTab tab) stateRef
   GS.sendToTabPort tab state $ BgTabUpdated tid cinfo tab
 
 onTabMoved :: StateRef -> TabId -> OnMoved.MoveInfo -> Effect Unit
 onTabMoved ref tid minfo = do
-  log $ "bg: moved tab " <> show tid
+  log $ "[bg] moved tab " <> show tid
   state <- Ref.modify (GS.moveTab minfo.fromIndex minfo.toIndex minfo.windowId) ref
   GS.sendToWindowPort minfo.windowId state $ BgTabMoved tid minfo.fromIndex minfo.toIndex
 
 onTabActived :: StateRef -> OnActivated.ActiveInfo -> Effect Unit
 onTabActived stateRef (OnActivated.ActiveInfo aInfo) = do
-  log $ "bg: activated tab " <> show aInfo.tabId
+  log $ "[bg] activated tab " <> show aInfo.tabId
   state <- Ref.modify (GS.activateTab aInfo.windowId aInfo.previousTabId aInfo.tabId) stateRef
   GS.sendToWindowPort aInfo.windowId state $ BgTabActivated aInfo.previousTabId aInfo.tabId
 
 onTabDeleted :: StateRef -> TabId -> OnRemoved.RemoveInfo -> Effect Unit
 onTabDeleted stateRef tabId info = do 
-  log $ "bg: deleted tab " <> show tabId
+  log $ "[bg] deleted tab " <> show tabId
   state <- Ref.modify (GS.deleteTab info.windowId tabId) stateRef
   GS.sendToWindowPort info.windowId state $ BgTabDeleted tabId
 
 onTabDetached :: StateRef -> TabId -> OnDetached.DetachInfo -> Effect Unit
 onTabDetached stateRef tabId info = do
-  log $ "bg: detached tab " <> show tabId
+  log $ "[bg] detached tab " <> show tabId
   state <- Ref.modify (GS.detachTab info.oldWindowId tabId) stateRef
   GS.sendToWindowPort info.oldWindowId state $ BgTabDetached tabId
 
 onTabAttached :: StateRef -> TabId -> OnAttached.AttachInfo -> Effect Unit
 onTabAttached stateRef tid info = do
-  log $ "bg: attached tab " <> show tid
+  log $ "[bg] attached tab " <> show tid
   state <- Ref.modify (GS.attachTab info.newWindowId tid info.newPosition) stateRef
   case GS.tabFromWinIdAndTabId info.newWindowId tid state of
      Just newTab -> GS.sendToWindowPort info.newWindowId state $ BgTabAttached newTab
@@ -225,7 +228,7 @@ onNewWindowId port stateRef listenerRef winId = do
           in
               tabs # traverse \tab@(Tab t) -> (getTabValue t.id "groupId" :: Aff (Maybe GroupId)) >>= 
                 case _ of 
-                     Nothing -> setTabValue t.id "groupId" defaultGroup *> pure (TabWithGroup tab defaultGroup)
+                     Nothing -> pure (TabWithGroup tab defaultGroup)
                      Just gid -> pure $ TabWithGroup tab gid
 
 
