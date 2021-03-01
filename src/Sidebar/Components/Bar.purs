@@ -524,6 +524,7 @@ lastWinTabIndexInGroup gid =
     >>> A.filter (T.snd >>> T.snd >>> (==) gid)
     >>> map T.fst
     >>> A.last
+    >>> map ((+) 1)
 
 findNextGroupId :: S.Set GroupId -> GroupId
 findNextGroupId values = 
