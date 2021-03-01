@@ -232,16 +232,19 @@ handleAction =
                 fromMaybe (A.length state.groupTabsPositions) 
                 $ lastWinTabIndexInGroup toGroup state.groupTabsPositions
 
+              -- The new index of tab in the group will be at the end.
+              newIndexInGroup = state.groupTabsPositions #
+                                    A.length <<<
+                                    A.filter (T.snd >>> (==) toGroup)
+
           s <- H.modify \s -> 
             s { tabsToGroup = M.update (\_ -> Just toGroup) tid s.tabsToGroup
             , groupTabsPositions = 
               s.groupTabsPositions
-              <#> 
-              (\(Tuple tid' gid') -> if tid' == tid then Tuple tid' toGroup else Tuple tid' gid') 
+              <#> \(Tuple tid' gid') -> if tid' == tid then Tuple tid' toGroup else Tuple tid' gid' 
             -- Reassign the current group directly here to avoid flickering
             , currentGroup = toGroup
             }
-          let newIndexInGroup = getPositionTabInGroup newTabIndex toGroup s.groupTabsPositions
 
           deletedTab' <- H.query _tabs fromGroup $ H.request $ Tabs.TabDeleted tid
           case deletedTab' of 
@@ -255,6 +258,8 @@ handleAction =
           H.raise $ SbChangeTabGroup tid (Just toGroup)
           void $ handleTabsQuery $ Tabs.TabActivated (Just tid) tid Nothing
 
+        -- | Raise a SbMoveTab event with the tab index corrected from the point of view of the
+        -- | group to that of the Firefox window.
         sidebarMoveTab 
           :: TabId 
           -> GroupId 
