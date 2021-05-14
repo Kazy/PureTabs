@@ -2,7 +2,7 @@ module PureTabs.Sidebar.Bar where
 
 import Browser.Tabs (Tab(..), TabId)
 import Browser.Utils (eqBy, sortByKeyIndex, unsafeLog)
-import Control.Bind (bind, discard, map, void, (<#>), (>>=))
+import Control.Bind (bind, discard, map, void, (<#>), (=<<), (>>=))
 import Data.Array ((:))
 import Data.Array as A
 import Data.Array.NonEmpty (NonEmptyArray)
@@ -391,7 +391,7 @@ handleTabsQuery = case _ of
     Tabs.TabCreated (Tab tab) a -> do 
        s <- H.get
 
-       let tabGroupId = s.currentGroup
+       let tabGroupId = fromMaybe s.currentGroup $ tab.openerTabId >>= (flip M.lookup) s.tabsToGroup
 
            newGroupTabsPositions = 
              fromMaybe s.groupTabsPositions 
