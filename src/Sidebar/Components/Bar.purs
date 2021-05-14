@@ -37,6 +37,7 @@ import PureTabs.Sidebar.Component.GroupName as GroupName
 import PureTabs.Sidebar.Component.TopMenu as TopMenu
 import PureTabs.Sidebar.Tabs (Output(..))
 import PureTabs.Sidebar.Tabs as Tabs
+import PureTabs.Utils (ifU)
 import Sidebar.Utils (moveElem, whenC)
 import Web.HTML.Event.DataTransfer as DT
 import Web.HTML.Event.DragEvent as DE
@@ -405,11 +406,11 @@ handleTabsQuery = case _ of
          state 
          { tabsToGroup = M.insert tab.id tabGroupId s.tabsToGroup 
          , groupTabsPositions = newGroupTabsPositions
+         , currentGroup = tabGroupId
          }
 
        void $ tellChild tabGroupId $ Tabs.TabCreated newTab
        pure $ Just a
-
 
     Tabs.TabDeleted tid reply -> do 
        doOnTabGroup tid \gid -> do 
