@@ -16,6 +16,11 @@
   "license": "ISC",
   "devDependencies": {
     "concurrently": "^5.2.0",
-    "parcel": "^1.12.4"
+    "parcel": "^1.12.4",
+    "purescript-language-server": "^0.15.0",
+    "spago": "^0.19.2"
+  },
+  "dependencies": {
+    "purescript": "^0.13.8"
   }
 }
