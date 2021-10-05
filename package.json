@@ -10,17 +10,19 @@
     "dev": "concurrently --kill-others \"spago build --watch\" \"parcel watch src/background.js src/sidebar.js -d extension/\"",
     "build": "spago build && parcel build src/background.js src/sidebar.js -d extension/",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "clean": "rm -rf .cache .psci_modules modules dist extension/background.js extension/background.js.map extension/sidebar.js extension/sidebar.js.map"
+    "clean": "rm -rf .cache .psci_modules modules dist extension/background.js extension/background.js.map extension/sidebar.js extension/sidebar.js.map",
+    "preinstall": "npx npm-force-resolutions",
+    "start:firefox": "web-ext run --source-dir ./extension",
+    "sign": "web-ext sign --source-dir ./extension"
   },
   "author": "",
   "license": "ISC",
   "devDependencies": {
     "concurrently": "^5.2.0",
     "parcel": "^1.12.4",
-    "purescript-language-server": "^0.15.0",
     "spago": "^0.19.2"
   },
-  "dependencies": {
-    "purescript": "^0.13.8"
+  "resolutions": {
+    "@babel/preset-env": "7.13.8"
   }
 }
