@@ -3,7 +3,7 @@ module PureTabs.Model.BackgroundEvent where
 import Browser.Tabs (Tab, TabId)
 import Browser.Tabs.OnUpdated (ChangeInfo)
 import Data.Generic.Rep (class Generic)
-import Data.Generic.Rep.Show (genericShow)
+import Data.Show.Generic (genericShow)
 import Data.Maybe (Maybe)
 import Data.Show (class Show)
 import PureTabs.Model.Group (GroupId)

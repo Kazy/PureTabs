@@ -5,7 +5,7 @@ import Browser.Utils (Listener3, UnregisteredListener3, mkListenerThree, unwrapF
 import Control.Alternative (pure)
 import Control.Bind ((>>=))
 import Data.Generic.Rep (class Generic)
-import Data.Generic.Rep.Show (genericShow)
+import Data.Show.Generic (genericShow)
 import Data.Maybe (Maybe)
 import Data.Newtype (class Newtype)
 import Data.Show (class Show)

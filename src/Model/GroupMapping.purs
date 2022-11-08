@@ -4,7 +4,7 @@ module PureTabs.Model.GroupMapping where
 import Browser.Tabs (WindowId)
 import Data.Array as A
 import Data.Generic.Rep (class Generic)
-import Data.Generic.Rep.Show (genericShow)
+import Data.Show.Generic (genericShow)
 import Data.Maybe (fromMaybe, Maybe(..))
 import Data.Newtype (class Newtype, unwrap)
 import Data.Show (class Show, show)

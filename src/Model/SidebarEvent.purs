@@ -2,7 +2,7 @@ module PureTabs.Model.SidebarEvent where
 
 import Browser.Tabs (TabId, WindowId)
 import Data.Generic.Rep (class Generic)
-import Data.Generic.Rep.Show (genericShow)
+import Data.Show.Generic (genericShow)
 import Data.Maybe (Maybe)
 import Data.Show (class Show)
 import PureTabs.Model.Group (GroupId)

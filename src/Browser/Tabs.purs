@@ -16,13 +16,13 @@ module Browser.Tabs (
   , showTabId
   ) where
 
+import Data.Generic.Rep (class Generic)
+import Data.Show.Generic (genericShow)
 import Browser.Utils (unwrapForeign)
 import Control.Alt (map)
 import Control.Promise (Promise, toAffE)
 import Data.Eq (class Eq)
 import Data.Function (($))
-import Data.Generic.Rep (class Generic)
-import Data.Generic.Rep.Show (genericShow)
 import Data.Maybe (Maybe)
 import Data.Newtype (class Newtype)
 import Data.Number.Format (toString)

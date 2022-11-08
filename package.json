@@ -20,7 +20,7 @@
   "devDependencies": {
     "concurrently": "^5.2.0",
     "parcel": "^1.12.4",
-    "spago": "^0.19.2"
+    "spago": "^0.20.3"
   },
   "resolutions": {
     "@babel/preset-env": "7.13.8"

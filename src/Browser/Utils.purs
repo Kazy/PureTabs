@@ -22,9 +22,10 @@ import Control.Monad.Except (runExcept)
 import Data.Array as A
 import Data.Either (Either(..))
 import Data.Eq (class Eq, (==))
-import Data.Foldable (fold)
+import Data.Foldable (fold, intercalate)
 import Data.Function (($))
 import Data.Generic.Rep (class Generic)
+import Data.List.NonEmpty as NEL
 import Data.Ord (class Ord)
 import Data.Tuple as T
 import Effect (Effect)
@@ -62,7 +63,7 @@ foreign import mkListenerThree :: forall a b c. (UnregisteredListener3 a b c) ->
 unwrapForeign :: forall a rep. Generic a rep => GenericDecode rep => Foreign -> Effect a
 unwrapForeign d = case runExcept
     $ genericDecode (defaultOptions { unwrapSingleConstructors = true }) d of
-  Left err -> throw $ A.intercalate ", " (map renderForeignError err)
+  Left err -> throw $ intercalate ", " (map renderForeignError err)
   Right val -> pure val
 
 foreign import unsafeLog' :: forall a. a

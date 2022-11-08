@@ -15,7 +15,6 @@ You can edit this file as you like.
   , "effect"
   , "foreign"
   , "foreign-generic"
-  , "generics-rep"
   , "halogen"
   , "halogen-css"
   , "halogen-hooks"
