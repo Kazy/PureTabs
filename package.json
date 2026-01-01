@@ -19,8 +19,8 @@
   "license": "ISC",
   "devDependencies": {
     "concurrently": "^5.2.0",
-    "parcel": "^1.12.4",
-    "spago": "^0.19.2"
+    "parcel": "^2.16.3",
+    "spago": "^0.21.0"
   },
   "resolutions": {
     "@babel/preset-env": "7.13.8"
